@@ -1,6 +1,6 @@
 import pytest
 
-from geometron_bot.config import ConfigurationError, load_config
+from geometron_bot.telegram_bot.config import ConfigurationError, load_config
 
 
 def test_load_config_reads_token_from_environment(

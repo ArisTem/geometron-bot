@@ -1,7 +1,7 @@
 import logging
 
-from geometron_bot.app import create_application
-from geometron_bot.config import ConfigurationError, load_config
+from geometron_bot.telegram_bot.app import create_application
+from geometron_bot.telegram_bot.config import ConfigurationError, load_config
 
 
 def configure_logging() -> None:

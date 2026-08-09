@@ -2,7 +2,7 @@ import asyncio
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
-from geometron_bot.handlers import ping
+from geometron_bot.telegram_bot.handlers import ping
 
 
 def test_ping_sends_response() -> None:

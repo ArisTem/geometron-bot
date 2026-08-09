@@ -1,7 +1,7 @@
 from telegram.ext import Application, CommandHandler
 
-from geometron_bot.config import Config
-from geometron_bot.handlers import handle_error, ping
+from geometron_bot.telegram_bot.config import Config
+from geometron_bot.telegram_bot.handlers import handle_error, ping
 
 
 def create_application(config: Config) -> Application:
