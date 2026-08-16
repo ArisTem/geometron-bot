@@ -1,8 +1,8 @@
 # Geometron
 
 Geometron is a Telegram bot for generating images with mathematical algorithms.
-The current foundation provides an asynchronous `/ping` command and is ready for
-future image-generation features.
+It currently generates deterministic Lissajous curves and reports the seed used
+for each image.
 
 ## Requirements
 
@@ -40,7 +40,10 @@ The `.env` file is ignored by Git.
 uv run geometron-bot
 ```
 
-Send `/ping` to verify that the bot is running and responding to commands.
+Available commands:
+
+- `/ping` verifies that the bot is running and responding to commands.
+- `/lissajous` generates a new Lissajous image and shows its seed.
 
 Stop the bot with `Ctrl+C`. The application shuts down gracefully through
 python-telegram-bot's polling lifecycle.
