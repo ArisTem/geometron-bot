@@ -1,5 +1,6 @@
 import asyncio
 import logging
+from time import perf_counter
 
 from telegram import InputFile, Update
 from telegram.ext import ContextTypes
@@ -22,17 +23,30 @@ async def lissajous(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if update.message is None:
         return
 
+    started_at = perf_counter()
     try:
         service: LissajousGenerationService = context.bot_data[
             LISSAJOUS_SERVICE_KEY
         ]
         result = await asyncio.to_thread(service.generate)
-    except Exception:
-        logger.exception("Failed to generate a Lissajous image")
+    except Exception as error:
+        duration_ms = round((perf_counter() - started_at) * 1000)
+        logger.exception(
+            "Lissajous generation failed | duration_ms=%d | error_type=%s",
+            duration_ms,
+            type(error).__name__,
+        )
         await update.message.reply_text(
             "Не удалось создать изображение. Попробуйте ещё раз."
         )
         return
+
+    duration_ms = round((perf_counter() - started_at) * 1000)
+    logger.info(
+        "Lissajous image generated | seed=%d | duration_ms=%d",
+        result.seed,
+        duration_ms,
+    )
 
     photo = InputFile(
         result.image,

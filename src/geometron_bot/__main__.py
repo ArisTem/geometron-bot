@@ -1,4 +1,5 @@
 import logging
+from importlib.metadata import PackageNotFoundError, version
 
 from geometron_bot.telegram_bot.app import create_application
 from geometron_bot.telegram_bot.config import ConfigurationError, load_config
@@ -9,6 +10,14 @@ def configure_logging() -> None:
         format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
         level=logging.INFO,
     )
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+
+
+def get_application_version() -> str:
+    try:
+        return version("geometron-bot")
+    except PackageNotFoundError:
+        return "unknown"
 
 
 def main() -> None:
@@ -22,7 +31,10 @@ def main() -> None:
         raise SystemExit(1) from error
 
     application = create_application(config)
-    logger.info("Starting Geometron bot")
+    logger.info(
+        "Starting Geometron bot | version=%s",
+        get_application_version(),
+    )
     application.run_polling()
     logger.info("Geometron bot stopped")
 
