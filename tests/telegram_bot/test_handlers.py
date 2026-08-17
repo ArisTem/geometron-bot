@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import re
 from io import BytesIO
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
@@ -8,9 +9,42 @@ from geometron_bot.generation.lissajous import LissajousParameters
 from geometron_bot.generation.service import LissajousGenerationResult
 from geometron_bot.telegram_bot.handlers import (
     LISSAJOUS_SERVICE_KEY,
+    PUBLIC_COMMANDS,
+    help_command,
     lissajous,
     ping,
+    start,
 )
+
+
+def extract_command_names(text: str) -> set[str]:
+    return set(re.findall(r"^/([a-z][a-z0-9_]*)\b", text, flags=re.MULTILINE))
+
+
+def public_command_names() -> set[str]:
+    return {command.name for command in PUBLIC_COMMANDS}
+
+
+def test_start_lists_public_commands() -> None:
+    message = SimpleNamespace(reply_text=AsyncMock())
+    update = SimpleNamespace(message=message)
+
+    asyncio.run(start(update, None))
+
+    message.reply_text.assert_awaited_once()
+    response = message.reply_text.await_args.args[0]
+    assert extract_command_names(response) == public_command_names()
+
+
+def test_help_lists_public_commands() -> None:
+    message = SimpleNamespace(reply_text=AsyncMock())
+    update = SimpleNamespace(message=message)
+
+    asyncio.run(help_command(update, None))
+
+    message.reply_text.assert_awaited_once()
+    response = message.reply_text.await_args.args[0]
+    assert extract_command_names(response) == public_command_names()
 
 
 def test_ping_sends_response() -> None:

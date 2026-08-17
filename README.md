@@ -42,8 +42,13 @@ uv run geometron-bot
 
 Available commands:
 
-- `/ping` verifies that the bot is running and responding to commands.
+- `/start` introduces the bot and shows its available commands.
 - `/lissajous` generates a new Lissajous image and shows its seed.
+- `/help` shows the current list of available commands.
+
+The bot publishes these commands to Telegram's command menu when it starts.
+The diagnostic `/ping` command is also available, but is intentionally hidden
+from the public command list.
 
 Stop the bot with `Ctrl+C`. The application shuts down gracefully through
 python-telegram-bot's polling lifecycle.

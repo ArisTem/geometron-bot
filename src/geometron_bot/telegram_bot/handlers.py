@@ -1,5 +1,7 @@
 import asyncio
 import logging
+from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 from time import perf_counter
 
 from telegram import InputFile, Update
@@ -10,6 +12,38 @@ from geometron_bot.generation.service import LissajousGenerationService
 logger = logging.getLogger(__name__)
 
 LISSAJOUS_SERVICE_KEY = "lissajous_generation_service"
+
+
+@dataclass(frozen=True, slots=True)
+class CommandSpec:
+    name: str
+    description: str
+    callback: Callable[..., Awaitable[None]]
+    is_public: bool = True
+
+
+def build_help_text() -> str:
+    command_lines = [
+        f"/{command.name} — {command.description}"
+        for command in PUBLIC_COMMANDS
+    ]
+    return "Доступные команды:\n\n" + "\n".join(command_lines)
+
+
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    del context
+    if update.message is not None:
+        await update.message.reply_text(
+            "Привет! Я Geometron — бот для создания изображений "
+            "с помощью математических алгоритмов.\n\n"
+            f"{build_help_text()}"
+        )
+
+
+async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    del context
+    if update.message is not None:
+        await update.message.reply_text(build_help_text())
 
 
 async def ping(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -61,3 +95,13 @@ async def lissajous(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 async def handle_error(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
     del update
     logger.error("Unhandled error while processing an update", exc_info=context.error)
+
+
+COMMANDS = (
+    CommandSpec("start", "Познакомиться с ботом", start),
+    CommandSpec("lissajous", "Создать кривую Лиссажу", lissajous),
+    CommandSpec("help", "Показать доступные команды", help_command),
+    CommandSpec("ping", "Проверить работу бота", ping, is_public=False),
+)
+
+PUBLIC_COMMANDS = tuple(command for command in COMMANDS if command.is_public)
