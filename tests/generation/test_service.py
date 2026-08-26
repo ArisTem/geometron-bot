@@ -1,10 +1,12 @@
 from io import BytesIO
+from unittest.mock import Mock
 
 import pytest
 from PIL import Image
 
 from geometron_bot.generation import service as service_module
 from geometron_bot.generation.lissajous import select_random_parameters
+from geometron_bot.generation.palette import GradientPalette, select_random_palette
 from geometron_bot.generation.random_source import RandomSource
 from geometron_bot.generation.renderer import PillowRenderer, RenderConfig
 from geometron_bot.generation.service import LissajousGenerationService
@@ -54,6 +56,32 @@ def test_service_creates_seed_when_one_is_not_supplied(
     result = service.generate()
 
     assert result.seed == generated_seed
+
+
+def test_service_selects_palette_from_an_independent_seeded_stream() -> None:
+    seed = 12345
+    renderer = Mock(spec=PillowRenderer)
+    renderer.render.return_value = BytesIO(b"rendered image")
+    service = LissajousGenerationService(renderer=renderer)
+
+    service.generate(seed)
+
+    selected_palette = renderer.render.call_args.args[1]
+    expected_palette = select_random_palette(
+        RandomSource(seed).stream("lissajous.palette")
+    )
+    assert selected_palette == expected_palette
+
+
+def test_service_uses_an_explicit_palette_instead_of_random_selection() -> None:
+    renderer = Mock(spec=PillowRenderer)
+    renderer.render.return_value = BytesIO(b"rendered image")
+    palette = GradientPalette(colors=((255, 0, 0), (0, 255, 0)))
+    service = LissajousGenerationService(renderer=renderer, palette=palette)
+
+    service.generate(seed=12345)
+
+    assert renderer.render.call_args.args[1] is palette
 
 
 @pytest.mark.parametrize("seed", [True, False, 1.5, "12345"])

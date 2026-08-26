@@ -9,7 +9,7 @@ from geometron_bot.generation.lissajous import (
     generate_lissajous,
     select_random_parameters,
 )
-from geometron_bot.generation.palette import DEFAULT_PALETTE, Palette
+from geometron_bot.generation.palette import Palette, select_random_palette
 from geometron_bot.generation.random_source import RandomSource
 from geometron_bot.generation.renderer import PillowRenderer
 
@@ -34,7 +34,7 @@ class LissajousGenerationService:
         palette: Palette | None = None,
     ) -> None:
         self._renderer = renderer if renderer is not None else PillowRenderer()
-        self._palette = palette if palette is not None else DEFAULT_PALETTE
+        self._palette_override = palette
 
     def generate(self, seed: int | None = None) -> LissajousGenerationResult:
         """Generate a Lissajous PNG, creating a seed when none is supplied."""
@@ -49,8 +49,11 @@ class LissajousGenerationService:
         parameters = select_random_parameters(
             random_source.stream("lissajous.parameters")
         )
+        palette = self._palette_override
+        if palette is None:
+            palette = select_random_palette(random_source.stream("lissajous.palette"))
         scene = generate_lissajous(parameters)
-        image = self._renderer.render(scene, self._palette)
+        image = self._renderer.render(scene, palette)
 
         return LissajousGenerationResult(
             image=image,
