@@ -3,8 +3,10 @@ import random
 import pytest
 
 from geometron_bot.generation.palette import (
-    PALETTE_CATALOG,
+    GRADIENT_PALETTES,
+    SOLID_PALETTES,
     GradientPalette,
+    SolidPalette,
     select_random_palette,
 )
 
@@ -36,9 +38,25 @@ def test_gradient_palette_rejects_invalid_colors(colors) -> None:
         GradientPalette(colors=colors)
 
 
-def test_palette_catalog_contains_distinct_cyclic_gradients() -> None:
-    assert len(set(PALETTE_CATALOG)) == len(PALETTE_CATALOG)
-    assert all(palette.colors[0] == palette.colors[-1] for palette in PALETTE_CATALOG)
+def test_solid_palette_returns_the_same_color_at_every_position() -> None:
+    color = (10, 20, 30)
+    palette = SolidPalette(color=color)
+
+    assert {palette.color_at(position) for position in (-1.0, 0.0, 0.5, 1.0, 2.0)} == {
+        color
+    }
+
+
+def test_solid_palette_rejects_an_invalid_color() -> None:
+    with pytest.raises(ValueError):
+        SolidPalette(color=(256, 0, 0))
+
+
+def test_palette_catalogs_contain_distinct_palettes_and_cyclic_gradients() -> None:
+    all_palettes = (*GRADIENT_PALETTES, *SOLID_PALETTES)
+
+    assert len(set(all_palettes)) == len(all_palettes)
+    assert all(palette.colors[0] == palette.colors[-1] for palette in GRADIENT_PALETTES)
 
 
 def test_random_palette_selection_is_deterministic() -> None:
@@ -46,12 +64,14 @@ def test_random_palette_selection_is_deterministic() -> None:
     second = select_random_palette(random.Random(12345))
 
     assert first == second
-    assert first in PALETTE_CATALOG
 
 
-def test_random_palette_selection_varies_across_seeds() -> None:
+def test_random_palette_selection_can_select_each_palette_type() -> None:
     selected_palettes = {
         select_random_palette(random.Random(seed)) for seed in range(32)
     }
 
-    assert len(selected_palettes) > 1
+    assert {type(palette) for palette in selected_palettes} == {
+        GradientPalette,
+        SolidPalette,
+    }

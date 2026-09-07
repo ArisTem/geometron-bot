@@ -46,6 +46,23 @@ class GradientPalette:
         )
 
 
+@dataclass(frozen=True, slots=True)
+class SolidPalette:
+    """A palette that returns one color for every drawing position."""
+
+    color: Color
+
+    def __post_init__(self) -> None:
+        if not _is_valid_color(self.color):
+            raise ValueError("Palette color must contain RGB values from 0 to 255")
+
+    def color_at(self, position: float) -> Color:
+        """Return the palette color for any finite drawing position."""
+        if not math.isfinite(position):
+            raise ValueError("Palette position must be finite")
+        return self.color
+
+
 def _is_valid_color(color: Color) -> bool:
     return len(color) == 3 and all(
         isinstance(channel, int) and 0 <= channel <= 255 for channel in color
@@ -68,7 +85,7 @@ DEFAULT_PALETTE = _cyclic_palette(
     )
 )
 
-PALETTE_CATALOG = (
+GRADIENT_PALETTES = (
     DEFAULT_PALETTE,
     _cyclic_palette(
         (
@@ -145,6 +162,19 @@ PALETTE_CATALOG = (
 )
 
 
-def select_random_palette(rng: random.Random) -> GradientPalette:
-    """Select a palette deterministically from the curated catalog."""
-    return rng.choice(PALETTE_CATALOG)
+SOLID_PALETTES = (
+    SolidPalette(color=(167, 139, 250)),
+    SolidPalette(color=(56, 189, 248)),
+    SolidPalette(color=(45, 212, 191)),
+    SolidPalette(color=(74, 222, 128)),
+    SolidPalette(color=(250, 204, 21)),
+    SolidPalette(color=(251, 146, 60)),
+    SolidPalette(color=(251, 113, 133)),
+    SolidPalette(color=(244, 114, 182)),
+)
+
+
+def select_random_palette(rng: random.Random) -> Palette:
+    """Select a palette type and palette deterministically with equal type odds."""
+    catalog = rng.choice((GRADIENT_PALETTES, SOLID_PALETTES))
+    return rng.choice(catalog)
