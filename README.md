@@ -1,8 +1,8 @@
 # Geometron
 
 Geometron is a Telegram bot for generating images with mathematical algorithms.
-It currently generates deterministic Lissajous curves with varied color palettes
-and reports the seed that determines each image's geometry and colors.
+It generates deterministic Lissajous curves and spirograph patterns with varied
+color palettes, and reports the seed that determines each image's geometry and colors.
 
 ## Requirements
 
@@ -44,6 +44,7 @@ Available commands:
 
 - `/start` introduces the bot and shows its available commands.
 - `/lissajous` generates a new Lissajous image and shows its seed.
+- `/spirograph` generates a new spirograph pattern and shows its type and seed.
 - `/help` shows the current list of available commands.
 
 The bot publishes these commands to Telegram's command menu when it starts.

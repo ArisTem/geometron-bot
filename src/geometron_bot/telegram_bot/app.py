@@ -1,12 +1,16 @@
 from telegram import BotCommand
 from telegram.ext import Application, CommandHandler
 
-from geometron_bot.generation.service import LissajousGenerationService
+from geometron_bot.generation.service import (
+    LissajousGenerationService,
+    SpirographGenerationService,
+)
 from geometron_bot.telegram_bot.config import Config
 from geometron_bot.telegram_bot.handlers import (
     COMMANDS,
     LISSAJOUS_SERVICE_KEY,
     PUBLIC_COMMANDS,
+    SPIROGRAPH_SERVICE_KEY,
     handle_error,
 )
 
@@ -23,6 +27,7 @@ async def set_bot_commands(application: Application) -> None:
 def create_application(
     config: Config,
     lissajous_service: LissajousGenerationService | None = None,
+    spirograph_service: SpirographGenerationService | None = None,
 ) -> Application:
     application = (
         Application.builder()
@@ -34,6 +39,11 @@ def create_application(
         lissajous_service
         if lissajous_service is not None
         else LissajousGenerationService()
+    )
+    application.bot_data[SPIROGRAPH_SERVICE_KEY] = (
+        spirograph_service
+        if spirograph_service is not None
+        else SpirographGenerationService()
     )
     for command in COMMANDS:
         application.add_handler(CommandHandler(command.name, command.callback))

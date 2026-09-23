@@ -7,11 +7,15 @@ from time import perf_counter
 from telegram import InputFile, Update
 from telegram.ext import ContextTypes
 
-from geometron_bot.generation.service import LissajousGenerationService
+from geometron_bot.generation.service import (
+    LissajousGenerationService,
+    SpirographGenerationService,
+)
 
 logger = logging.getLogger(__name__)
 
 LISSAJOUS_SERVICE_KEY = "lissajous_generation_service"
+SPIROGRAPH_SERVICE_KEY = "spirograph_generation_service"
 
 
 @dataclass(frozen=True, slots=True)
@@ -92,6 +96,43 @@ async def lissajous(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     )
 
 
+async def spirograph(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Generate and send one spirograph image with its reproducible seed."""
+    if update.message is None:
+        return
+
+    started_at = perf_counter()
+    try:
+        service: SpirographGenerationService = context.bot_data[
+            SPIROGRAPH_SERVICE_KEY
+        ]
+        result = await asyncio.to_thread(service.generate)
+    except Exception as error:
+        duration_ms = round((perf_counter() - started_at) * 1000)
+        logger.exception(
+            "Spirograph generation failed | duration_ms=%d | error_type=%s",
+            duration_ms,
+            type(error).__name__,
+        )
+        await update.message.reply_text(
+            "Не удалось создать изображение. Попробуйте ещё раз."
+        )
+        return
+
+    duration_ms = round((perf_counter() - started_at) * 1000)
+    logger.info(
+        "Spirograph image generated | seed=%d | duration_ms=%d",
+        result.seed,
+        duration_ms,
+    )
+    pattern_name = "внутри" if result.parameters.pattern_type == "inside" else "снаружи"
+    photo = InputFile(result.image, filename=f"spirograph-{result.seed}.png")
+    await update.message.reply_photo(
+        photo=photo,
+        caption=f"Спирограф: {pattern_name}\nSeed: {result.seed}",
+    )
+
+
 async def handle_error(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
     del update
     logger.error("Unhandled error while processing an update", exc_info=context.error)
@@ -100,6 +141,7 @@ async def handle_error(update: object, context: ContextTypes.DEFAULT_TYPE) -> No
 COMMANDS = (
     CommandSpec("start", "Познакомиться с ботом", start),
     CommandSpec("lissajous", "Создать кривую Лиссажу", lissajous),
+    CommandSpec("spirograph", "Создать узор спирографа", spirograph),
     CommandSpec("help", "Показать доступные команды", help_command),
     CommandSpec("ping", "Проверить работу бота", ping, is_public=False),
 )

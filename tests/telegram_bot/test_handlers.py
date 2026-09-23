@@ -6,13 +6,19 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
 from geometron_bot.generation.lissajous import LissajousParameters
-from geometron_bot.generation.service import LissajousGenerationResult
+from geometron_bot.generation.service import (
+    LissajousGenerationResult,
+    SpirographGenerationResult,
+)
+from geometron_bot.generation.spirograph import SpirographParameters
 from geometron_bot.telegram_bot.handlers import (
     LISSAJOUS_SERVICE_KEY,
     PUBLIC_COMMANDS,
+    SPIROGRAPH_SERVICE_KEY,
     help_command,
     lissajous,
     ping,
+    spirograph,
     start,
 )
 
@@ -121,3 +127,65 @@ def test_lissajous_reports_generation_failure(caplog) -> None:
     assert "duration_ms=" in error_record.getMessage()
     assert "error_type=RuntimeError" in error_record.getMessage()
     assert error_record.exc_info is not None
+
+
+def test_spirograph_sends_image_type_seed_and_filename(caplog) -> None:
+    image_bytes = b"generated PNG"
+    result = SpirographGenerationResult(
+        image=BytesIO(image_bytes),
+        seed=12345,
+        parameters=SpirographParameters("inside", 7, 2, 2.0),
+    )
+    service = SimpleNamespace(generate=Mock(return_value=result))
+    message = SimpleNamespace(reply_photo=AsyncMock(), reply_text=AsyncMock())
+    update = SimpleNamespace(message=message)
+    context = SimpleNamespace(bot_data={SPIROGRAPH_SERVICE_KEY: service})
+
+    with caplog.at_level(logging.INFO, logger=spirograph.__module__):
+        asyncio.run(spirograph(update, context))
+
+    service.generate.assert_called_once_with()
+    message.reply_text.assert_not_awaited()
+    message.reply_photo.assert_awaited_once()
+    sent = message.reply_photo.await_args.kwargs
+    assert sent["photo"].filename == "spirograph-12345.png"
+    assert sent["photo"].input_file_content == image_bytes
+    assert "внутри" in sent["caption"]
+    assert "12345" in sent["caption"]
+    assert "duration_ms=" in caplog.text
+
+
+def test_spirograph_sends_outside_type() -> None:
+    result = SpirographGenerationResult(
+        image=BytesIO(b"PNG"),
+        seed=0,
+        parameters=SpirographParameters("outside", 7, 2, 2.0),
+    )
+    service = SimpleNamespace(generate=Mock(return_value=result))
+    message = SimpleNamespace(reply_photo=AsyncMock())
+    context = SimpleNamespace(bot_data={SPIROGRAPH_SERVICE_KEY: service})
+
+    asyncio.run(spirograph(SimpleNamespace(message=message), context))
+
+    assert "снаружи" in message.reply_photo.await_args.kwargs["caption"]
+
+
+def test_spirograph_reports_generation_failure(caplog) -> None:
+    service = SimpleNamespace(generate=Mock(side_effect=RuntimeError("render failed")))
+    message = SimpleNamespace(reply_photo=AsyncMock(), reply_text=AsyncMock())
+    context = SimpleNamespace(bot_data={SPIROGRAPH_SERVICE_KEY: service})
+
+    with caplog.at_level(logging.ERROR, logger=spirograph.__module__):
+        asyncio.run(spirograph(SimpleNamespace(message=message), context))
+
+    message.reply_photo.assert_not_awaited()
+    message.reply_text.assert_awaited_once_with(
+        "Не удалось создать изображение. Попробуйте ещё раз."
+    )
+    record = next(
+        record for record in caplog.records
+        if record.getMessage().startswith("Spirograph generation failed")
+    )
+    assert "duration_ms=" in record.getMessage()
+    assert "error_type=RuntimeError" in record.getMessage()
+    assert record.exc_info is not None

@@ -1,100 +1,108 @@
+import random
 from io import BytesIO
 from unittest.mock import Mock
 
 import pytest
 from PIL import Image
 
+from geometron_bot.generation import lissajous, spirograph
 from geometron_bot.generation import service as service_module
-from geometron_bot.generation.lissajous import select_random_parameters
 from geometron_bot.generation.palette import GradientPalette, select_random_palette
 from geometron_bot.generation.random_source import RandomSource
-from geometron_bot.generation.renderer import PillowRenderer, RenderConfig
-from geometron_bot.generation.service import LissajousGenerationService
+from geometron_bot.generation.renderer import PillowRenderer
+from geometron_bot.generation.service import (
+    LissajousGenerationService,
+    SpirographGenerationService,
+)
+
+_SERVICE_TYPES = (LissajousGenerationService, SpirographGenerationService)
+_SERVICES_WITH_GEOMETRY = (
+    pytest.param(LissajousGenerationService, lissajous, "lissajous", id="lissajous"),
+    pytest.param(SpirographGenerationService, spirograph, "spirograph", id="spirograph"),
+)
 
 
-def test_service_generates_lissajous_image_without_telegram() -> None:
-    service = LissajousGenerationService(
-        renderer=PillowRenderer(
-            RenderConfig(
-                image_size=128,
-                margin=16,
-                line_width=2,
-                supersampling=2,
-            )
-        )
+@pytest.mark.parametrize(("service_type", "geometry", "namespace"), _SERVICES_WITH_GEOMETRY)
+def test_service_generates_reproducible_png(service_type, geometry, namespace) -> None:
+    service = service_type()
+    random_state = random.getstate()
+    try:
+        random.seed(1)
+        first = service.generate(seed=12345)
+        random.seed(999)
+        second = service.generate(seed=12345)
+    finally:
+        random.setstate(random_state)
+
+    assert first.seed == 12345
+    assert first.parameters == geometry.select_random_parameters(
+        RandomSource(12345).stream(f"{namespace}.parameters")
     )
-
-    result = service.generate(seed=12345)
-
-    assert result.seed == 12345
-    assert result.parameters == select_random_parameters(
-        RandomSource(12345).stream("lissajous.parameters")
-    )
-    assert isinstance(result.image, BytesIO)
-    assert result.image.tell() == 0
-    with Image.open(result.image) as image:
+    assert first.parameters == second.parameters
+    assert first.image.getvalue() == second.image.getvalue()
+    assert isinstance(first.image, BytesIO)
+    assert first.image.tell() == 0
+    with Image.open(first.image) as image:
         assert image.format == "PNG"
-        assert image.size == (128, 128)
+        assert image.size == (1024, 1024)
 
 
+@pytest.mark.parametrize("service_type", _SERVICE_TYPES)
 def test_service_creates_seed_when_one_is_not_supplied(
-    monkeypatch: pytest.MonkeyPatch,
+    service_type, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    generated_seed = 987_654_321
+    renderer = Mock(spec=PillowRenderer)
+    renderer.render.return_value = BytesIO(b"rendered image")
 
     def create_seed(bit_count: int) -> int:
         assert bit_count == 64
-        return generated_seed
+        return 987_654_321
 
     monkeypatch.setattr(service_module.secrets, "randbits", create_seed)
-    service = LissajousGenerationService(
-        renderer=PillowRenderer(
-            RenderConfig(image_size=64, margin=8, supersampling=1)
-        )
-    )
 
-    result = service.generate()
-
-    assert result.seed == generated_seed
+    assert service_type(renderer=renderer).generate().seed == 987_654_321
 
 
-def test_service_selects_palette_from_an_independent_seeded_stream() -> None:
-    seed = 12345
+@pytest.mark.parametrize(
+    ("service_type", "namespace"),
+    [(LissajousGenerationService, "lissajous"), (SpirographGenerationService, "spirograph")],
+)
+def test_service_selects_palette_from_an_independent_seeded_stream(
+    service_type, namespace
+) -> None:
     renderer = Mock(spec=PillowRenderer)
     renderer.render.return_value = BytesIO(b"rendered image")
-    service = LissajousGenerationService(renderer=renderer)
 
-    service.generate(seed)
+    service_type(renderer=renderer).generate(seed=12345)
 
-    selected_palette = renderer.render.call_args.args[1]
-    expected_palette = select_random_palette(
-        RandomSource(seed).stream("lissajous.palette")
+    assert renderer.render.call_args.args[1] == select_random_palette(
+        RandomSource(12345).stream(f"{namespace}.palette")
     )
-    assert selected_palette == expected_palette
 
 
-def test_service_uses_an_explicit_palette_instead_of_random_selection() -> None:
+@pytest.mark.parametrize("service_type", _SERVICE_TYPES)
+def test_service_uses_an_explicit_palette(service_type) -> None:
     renderer = Mock(spec=PillowRenderer)
     renderer.render.return_value = BytesIO(b"rendered image")
     palette = GradientPalette(colors=((255, 0, 0), (0, 255, 0)))
-    service = LissajousGenerationService(renderer=renderer, palette=palette)
 
-    service.generate(seed=12345)
+    service_type(renderer=renderer, palette=palette).generate(seed=12345)
 
     assert renderer.render.call_args.args[1] is palette
 
 
-@pytest.mark.parametrize("seed", [True, False, 1.5, "12345"])
-def test_service_rejects_non_integer_seed(seed: object) -> None:
-    service = LissajousGenerationService()
-
-    with pytest.raises(TypeError, match="Seed must be an integer"):
-        service.generate(seed)
-
-
-@pytest.mark.parametrize("seed", [-1, 2**64])
-def test_service_rejects_seed_outside_unsigned_64_bit_range(seed: int) -> None:
-    service = LissajousGenerationService()
-
-    with pytest.raises(ValueError, match="unsigned 64-bit integer"):
-        service.generate(seed)
+@pytest.mark.parametrize("service_type", _SERVICE_TYPES)
+@pytest.mark.parametrize(
+    ("seed", "error_type", "message"),
+    [
+        (True, TypeError, "Seed must be an integer"),
+        (False, TypeError, "Seed must be an integer"),
+        (1.5, TypeError, "Seed must be an integer"),
+        ("12345", TypeError, "Seed must be an integer"),
+        (-1, ValueError, "unsigned 64-bit integer"),
+        (2**64, ValueError, "unsigned 64-bit integer"),
+    ],
+)
+def test_service_rejects_invalid_seed(service_type, seed, error_type, message) -> None:
+    with pytest.raises(error_type, match=message):
+        service_type().generate(seed)
