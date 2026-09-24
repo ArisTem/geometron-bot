@@ -5,7 +5,8 @@ import random
 from dataclasses import dataclass
 from typing import Literal
 
-from geometron_bot.generation.geometry import Polyline, Scene
+from geometron_bot.generation.geometry import Polyline
+from geometron_bot.generation.scene import Scene, Stroke
 
 type SpirographType = Literal["inside", "outside"]
 
@@ -94,4 +95,4 @@ def generate_spirograph(parameters: SpirographParameters) -> Scene:
 
     if any(not math.isfinite(coordinate) for point in points for coordinate in point):
         raise ValueError("Spirograph coordinates must be finite")
-    return Scene(polylines=(Polyline(points=(*points, points[0])),))
+    return Scene(strokes=(Stroke(polyline=Polyline(points=(*points, points[0]))),))

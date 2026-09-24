@@ -7,8 +7,9 @@ from itertools import pairwise
 
 from PIL import Image, ImageDraw
 
-from geometron_bot.generation.geometry import Point, Scene
+from geometron_bot.generation.geometry import Point
 from geometron_bot.generation.palette import Color, Palette
+from geometron_bot.generation.scene import Scene
 
 
 @dataclass(frozen=True, slots=True)
@@ -35,7 +36,7 @@ class RenderConfig:
 
 
 class PillowRenderer:
-    """Render world-coordinate polylines to an antialiased PNG stream."""
+    """Render styled world-coordinate strokes to an antialiased PNG stream."""
 
     def __init__(self, config: RenderConfig | None = None) -> None:
         self._config = config or RenderConfig()
@@ -43,7 +44,7 @@ class PillowRenderer:
     def render(self, scene: Scene, palette: Palette) -> BytesIO:
         """Render a scene and return a PNG stream positioned at its beginning."""
         world_points = tuple(
-            point for polyline in scene.polylines for point in polyline.points
+            point for stroke in scene.strokes for point in stroke.polyline.points
         )
         if not world_points:
             raise ValueError("Scene must contain at least one point")
@@ -62,29 +63,47 @@ class PillowRenderer:
             color=config.background_color,
         )
         drawing = ImageDraw.Draw(image)
-        working_line_width = config.line_width * scale_factor
-
-        for polyline in scene.polylines:
-            image_points = tuple(transform(point) for point in polyline.points)
+        for stroke in scene.strokes:
+            style = stroke.style
+            working_line_width = max(
+                1, round(config.line_width * style.width_scale * scale_factor)
+            )
+            image_points = tuple(transform(point) for point in stroke.polyline.points)
+            if not image_points:
+                continue
             if len(image_points) == 1:
+                position = (
+                    style.palette_position
+                    if style.palette_position is not None
+                    else 0.0
+                )
                 _draw_point(
                     drawing,
                     image_points[0],
-                    palette.color_at(0.0),
+                    palette.color_at(position),
                     working_line_width,
                 )
                 continue
 
+            fixed_color = (
+                palette.color_at(style.palette_position)
+                if style.palette_position is not None
+                else None
+            )
             final_segment_index = len(image_points) - 2
             for segment_index, (start, end) in enumerate(pairwise(image_points)):
-                position = (
-                    segment_index / final_segment_index
-                    if final_segment_index > 0
-                    else 0.0
-                )
+                if fixed_color is None:
+                    position = (
+                        segment_index / final_segment_index
+                        if final_segment_index > 0
+                        else 0.0
+                    )
+                    color = palette.color_at(position)
+                else:
+                    color = fixed_color
                 drawing.line(
                     (start, end),
-                    fill=palette.color_at(position),
+                    fill=color,
                     width=working_line_width,
                 )
 

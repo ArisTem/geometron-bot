@@ -55,8 +55,8 @@ def test_generate_lissajous_produces_expected_world_coordinates() -> None:
 
     scene = generate_lissajous(parameters)
 
-    assert len(scene.polylines) == 1
-    assert len(scene.polylines[0].points) == parameters.sample_count
-    assert scene.polylines[0].points[0] == pytest.approx((1.0, 0.0))
-    assert scene.polylines[0].points[1] == pytest.approx((math.sqrt(0.5), 1.0))
-    assert scene.polylines[0].points[-1] == scene.polylines[0].points[0]
+    assert len(scene.strokes) == 1
+    assert len(scene.strokes[0].polyline.points) == parameters.sample_count
+    assert scene.strokes[0].polyline.points[0] == pytest.approx((1.0, 0.0))
+    assert scene.strokes[0].polyline.points[1] == pytest.approx((math.sqrt(0.5), 1.0))
+    assert scene.strokes[0].polyline.points[-1] == scene.strokes[0].polyline.points[0]

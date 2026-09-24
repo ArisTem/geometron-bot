@@ -4,7 +4,8 @@ import math
 import random
 from dataclasses import dataclass
 
-from geometron_bot.generation.geometry import Polyline, Scene
+from geometron_bot.generation.geometry import Polyline
+from geometron_bot.generation.scene import Scene, Stroke
 
 _DEFAULT_SAMPLE_COUNT = 1_200
 _FREQUENCY_PAIRS = tuple(
@@ -57,4 +58,4 @@ def generate_lissajous(parameters: LissajousParameters) -> Scene:
         for time in sample_times
     )
 
-    return Scene(polylines=(Polyline(points=(*points, points[0])),))
+    return Scene(strokes=(Stroke(polyline=Polyline(points=(*points, points[0]))),))

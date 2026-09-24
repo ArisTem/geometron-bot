@@ -25,7 +25,7 @@ def test_coordinates_and_closed_period(
         pattern_type, radius, rolling_radius, distance, sample_count=9
     )
 
-    points = generate_spirograph(parameters).polylines[0].points
+    points = generate_spirograph(parameters).strokes[0].polyline.points
 
     assert len(points) == 9
     assert points[0] == pytest.approx(first)
