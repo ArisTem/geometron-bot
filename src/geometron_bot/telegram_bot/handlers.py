@@ -8,6 +8,7 @@ from telegram import InputFile, Update
 from telegram.ext import ContextTypes
 
 from geometron_bot.generation.service import (
+    FractalTreeGenerationService,
     LissajousGenerationService,
     SpirographGenerationService,
 )
@@ -16,6 +17,7 @@ logger = logging.getLogger(__name__)
 
 LISSAJOUS_SERVICE_KEY = "lissajous_generation_service"
 SPIROGRAPH_SERVICE_KEY = "spirograph_generation_service"
+FRACTAL_TREE_SERVICE_KEY = "fractal_tree_generation_service"
 
 
 @dataclass(frozen=True, slots=True)
@@ -133,6 +135,42 @@ async def spirograph(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     )
 
 
+async def fractal_tree(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Generate and send a fractal tree with its reproducible seed."""
+    if update.message is None:
+        return
+
+    started_at = perf_counter()
+    try:
+        service: FractalTreeGenerationService = context.bot_data[
+            FRACTAL_TREE_SERVICE_KEY
+        ]
+        result = await asyncio.to_thread(service.generate)
+    except Exception as error:
+        duration_ms = round((perf_counter() - started_at) * 1000)
+        logger.exception(
+            "Fractal tree generation failed | duration_ms=%d | error_type=%s",
+            duration_ms,
+            type(error).__name__,
+        )
+        await update.message.reply_text(
+            "Не удалось создать изображение. Попробуйте ещё раз."
+        )
+        return
+
+    duration_ms = round((perf_counter() - started_at) * 1000)
+    logger.info(
+        "Fractal tree image generated | seed=%d | duration_ms=%d",
+        result.seed,
+        duration_ms,
+    )
+    photo = InputFile(result.image, filename=f"fractal-tree-{result.seed}.png")
+    await update.message.reply_photo(
+        photo=photo,
+        caption=f"Фрактальное дерево\nSeed: {result.seed}",
+    )
+
+
 async def handle_error(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
     del update
     logger.error("Unhandled error while processing an update", exc_info=context.error)
@@ -142,6 +180,7 @@ COMMANDS = (
     CommandSpec("start", "Познакомиться с ботом", start),
     CommandSpec("lissajous", "Создать кривую Лиссажу", lissajous),
     CommandSpec("spirograph", "Создать узор спирографа", spirograph),
+    CommandSpec("fractal_tree", "Создать фрактальное дерево", fractal_tree),
     CommandSpec("help", "Показать доступные команды", help_command),
     CommandSpec("ping", "Проверить работу бота", ping, is_public=False),
 )

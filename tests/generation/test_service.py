@@ -5,20 +5,32 @@ from unittest.mock import Mock
 import pytest
 from PIL import Image
 
-from geometron_bot.generation import lissajous, spirograph
+from geometron_bot.generation import fractal_tree, lissajous, spirograph
 from geometron_bot.generation import service as service_module
-from geometron_bot.generation.palette import GradientPalette, select_random_palette
+from geometron_bot.generation.palette import (
+    GradientPalette,
+    select_random_gradient_palette,
+    select_random_palette,
+)
 from geometron_bot.generation.random_source import RandomSource
 from geometron_bot.generation.renderer import PillowRenderer
 from geometron_bot.generation.service import (
+    FractalTreeGenerationService,
     LissajousGenerationService,
     SpirographGenerationService,
 )
 
-_SERVICE_TYPES = (LissajousGenerationService, SpirographGenerationService)
+_SERVICE_TYPES = (
+    LissajousGenerationService,
+    SpirographGenerationService,
+    FractalTreeGenerationService,
+)
 _SERVICES_WITH_GEOMETRY = (
     pytest.param(LissajousGenerationService, lissajous, "lissajous", id="lissajous"),
     pytest.param(SpirographGenerationService, spirograph, "spirograph", id="spirograph"),
+    pytest.param(
+        FractalTreeGenerationService, fractal_tree, "fractal_tree", id="fractal_tree"
+    ),
 )
 
 
@@ -89,6 +101,20 @@ def test_service_uses_an_explicit_palette(service_type) -> None:
     service_type(renderer=renderer, palette=palette).generate(seed=12345)
 
     assert renderer.render.call_args.args[1] is palette
+
+
+def test_tree_service_uses_gradient_palette_and_independent_branch_stream() -> None:
+    renderer = Mock(spec=PillowRenderer)
+    renderer.render.return_value = BytesIO(b"rendered image")
+    result = FractalTreeGenerationService(renderer=renderer).generate(seed=12345)
+    scene, palette = renderer.render.call_args.args
+
+    assert palette is select_random_gradient_palette(
+        RandomSource(12345).stream("fractal_tree.palette")
+    )
+    assert scene == fractal_tree.generate_fractal_tree(
+        result.parameters, RandomSource(12345).stream("fractal_tree.branches")
+    )
 
 
 @pytest.mark.parametrize("service_type", _SERVICE_TYPES)

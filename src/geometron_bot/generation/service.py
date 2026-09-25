@@ -4,8 +4,12 @@ import secrets
 from dataclasses import dataclass
 from io import BytesIO
 
-from geometron_bot.generation import lissajous, spirograph
-from geometron_bot.generation.palette import Palette, select_random_palette
+from geometron_bot.generation import fractal_tree, lissajous, spirograph
+from geometron_bot.generation.palette import (
+    Palette,
+    select_random_gradient_palette,
+    select_random_palette,
+)
 from geometron_bot.generation.random_source import RandomSource
 from geometron_bot.generation.renderer import PillowRenderer
 
@@ -97,6 +101,49 @@ class SpirographGenerationService:
         image = self._renderer.render(scene, palette)
 
         return SpirographGenerationResult(
+            image=image,
+            seed=generation_seed,
+            parameters=parameters,
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class FractalTreeGenerationResult:
+    """A rendered tree and the inputs needed to reproduce it."""
+
+    image: BytesIO
+    seed: int
+    parameters: fractal_tree.FractalTreeParameters
+
+
+class FractalTreeGenerationService:
+    """Select tree settings, build branches, and render a PNG."""
+
+    def __init__(
+        self,
+        renderer: PillowRenderer | None = None,
+        palette: Palette | None = None,
+    ) -> None:
+        self._renderer = renderer if renderer is not None else PillowRenderer()
+        self._palette_override = palette
+
+    def generate(self, seed: int | None = None) -> FractalTreeGenerationResult:
+        """Generate a new tree or reproduce one by its unsigned seed."""
+        generation_seed = _resolve_seed(seed)
+        random_source = RandomSource(generation_seed)
+        parameters = fractal_tree.select_random_parameters(
+            random_source.stream("fractal_tree.parameters")
+        )
+        scene = fractal_tree.generate_fractal_tree(
+            parameters, random_source.stream("fractal_tree.branches")
+        )
+        palette = self._palette_override
+        if palette is None:
+            palette = select_random_gradient_palette(
+                random_source.stream("fractal_tree.palette")
+            )
+        image = self._renderer.render(scene, palette)
+        return FractalTreeGenerationResult(
             image=image,
             seed=generation_seed,
             parameters=parameters,

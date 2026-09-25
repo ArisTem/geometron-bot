@@ -5,16 +5,20 @@ from io import BytesIO
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
+from geometron_bot.generation.fractal_tree import FractalTreeParameters, TreeVariant
 from geometron_bot.generation.lissajous import LissajousParameters
 from geometron_bot.generation.service import (
+    FractalTreeGenerationResult,
     LissajousGenerationResult,
     SpirographGenerationResult,
 )
 from geometron_bot.generation.spirograph import SpirographParameters
 from geometron_bot.telegram_bot.handlers import (
+    FRACTAL_TREE_SERVICE_KEY,
     LISSAJOUS_SERVICE_KEY,
     PUBLIC_COMMANDS,
     SPIROGRAPH_SERVICE_KEY,
+    fractal_tree,
     help_command,
     lissajous,
     ping,
@@ -185,6 +189,60 @@ def test_spirograph_reports_generation_failure(caplog) -> None:
     record = next(
         record for record in caplog.records
         if record.getMessage().startswith("Spirograph generation failed")
+    )
+    assert "duration_ms=" in record.getMessage()
+    assert "error_type=RuntimeError" in record.getMessage()
+    assert record.exc_info is not None
+
+
+def test_fractal_tree_sends_image_seed_and_filename(caplog) -> None:
+    image_bytes = b"generated PNG"
+    result = FractalTreeGenerationResult(
+        image=BytesIO(image_bytes),
+        seed=12345,
+        parameters=FractalTreeParameters(
+            depth=9,
+            length_ratio=0.7,
+            branch_angle=0.4,
+            trunk_tilt=0.0,
+            angle_jitter=0.0,
+            length_jitter=0.0,
+            variant=TreeVariant.SYMMETRIC,
+        ),
+    )
+    service = SimpleNamespace(generate=Mock(return_value=result))
+    message = SimpleNamespace(reply_photo=AsyncMock(), reply_text=AsyncMock())
+    context = SimpleNamespace(bot_data={FRACTAL_TREE_SERVICE_KEY: service})
+
+    with caplog.at_level(logging.INFO, logger=fractal_tree.__module__):
+        asyncio.run(fractal_tree(SimpleNamespace(message=message), context))
+
+    service.generate.assert_called_once_with()
+    message.reply_text.assert_not_awaited()
+    message.reply_photo.assert_awaited_once()
+    sent = message.reply_photo.await_args.kwargs
+    assert sent["photo"].filename == "fractal-tree-12345.png"
+    assert sent["photo"].input_file_content == image_bytes
+    assert sent["caption"] == "Фрактальное дерево\nSeed: 12345"
+    assert "seed=12345" in caplog.text
+    assert "duration_ms=" in caplog.text
+
+
+def test_fractal_tree_reports_generation_failure(caplog) -> None:
+    service = SimpleNamespace(generate=Mock(side_effect=RuntimeError("render failed")))
+    message = SimpleNamespace(reply_photo=AsyncMock(), reply_text=AsyncMock())
+    context = SimpleNamespace(bot_data={FRACTAL_TREE_SERVICE_KEY: service})
+
+    with caplog.at_level(logging.ERROR, logger=fractal_tree.__module__):
+        asyncio.run(fractal_tree(SimpleNamespace(message=message), context))
+
+    message.reply_photo.assert_not_awaited()
+    message.reply_text.assert_awaited_once_with(
+        "Не удалось создать изображение. Попробуйте ещё раз."
+    )
+    record = next(
+        record for record in caplog.records
+        if record.getMessage().startswith("Fractal tree generation failed")
     )
     assert "duration_ms=" in record.getMessage()
     assert "error_type=RuntimeError" in record.getMessage()

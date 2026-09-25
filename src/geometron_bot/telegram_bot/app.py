@@ -2,12 +2,14 @@ from telegram import BotCommand
 from telegram.ext import Application, CommandHandler
 
 from geometron_bot.generation.service import (
+    FractalTreeGenerationService,
     LissajousGenerationService,
     SpirographGenerationService,
 )
 from geometron_bot.telegram_bot.config import Config
 from geometron_bot.telegram_bot.handlers import (
     COMMANDS,
+    FRACTAL_TREE_SERVICE_KEY,
     LISSAJOUS_SERVICE_KEY,
     PUBLIC_COMMANDS,
     SPIROGRAPH_SERVICE_KEY,
@@ -28,6 +30,7 @@ def create_application(
     config: Config,
     lissajous_service: LissajousGenerationService | None = None,
     spirograph_service: SpirographGenerationService | None = None,
+    fractal_tree_service: FractalTreeGenerationService | None = None,
 ) -> Application:
     application = (
         Application.builder()
@@ -44,6 +47,11 @@ def create_application(
         spirograph_service
         if spirograph_service is not None
         else SpirographGenerationService()
+    )
+    application.bot_data[FRACTAL_TREE_SERVICE_KEY] = (
+        fractal_tree_service
+        if fractal_tree_service is not None
+        else FractalTreeGenerationService()
     )
     for command in COMMANDS:
         application.add_handler(CommandHandler(command.name, command.callback))

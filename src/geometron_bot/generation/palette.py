@@ -178,3 +178,8 @@ def select_random_palette(rng: random.Random) -> Palette:
     """Select a palette type and palette deterministically with equal type odds."""
     catalog = rng.choice((GRADIENT_PALETTES, SOLID_PALETTES))
     return rng.choice(catalog)
+
+
+def select_random_gradient_palette(rng: random.Random) -> GradientPalette:
+    """Select one of the existing gradients with equal odds."""
+    return rng.choice(GRADIENT_PALETTES)

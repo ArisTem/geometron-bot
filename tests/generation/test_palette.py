@@ -7,6 +7,7 @@ from geometron_bot.generation.palette import (
     SOLID_PALETTES,
     GradientPalette,
     SolidPalette,
+    select_random_gradient_palette,
     select_random_palette,
 )
 
@@ -75,3 +76,15 @@ def test_random_palette_selection_can_select_each_palette_type() -> None:
         GradientPalette,
         SolidPalette,
     }
+
+
+def test_random_gradient_selection_stays_in_catalog_and_is_deterministic() -> None:
+    selected = {
+        select_random_gradient_palette(random.Random(seed)) for seed in range(100)
+    }
+
+    first = select_random_gradient_palette(random.Random(12345))
+    second = select_random_gradient_palette(random.Random(12345))
+
+    assert selected == set(GRADIENT_PALETTES)
+    assert first is second
