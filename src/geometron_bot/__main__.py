@@ -26,11 +26,11 @@ def main() -> None:
 
     try:
         config = load_config()
+        application = create_application(config)
     except ConfigurationError as error:
         logger.error("%s", error)
         raise SystemExit(1) from error
 
-    application = create_application(config)
     logger.info(
         "Starting Geometron bot | version=%s",
         get_application_version(),

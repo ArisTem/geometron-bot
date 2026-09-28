@@ -35,6 +35,46 @@ TELEGRAM_BOT_TOKEN=your-token-here
 
 The `.env` file is ignored by Git.
 
+### Usage statistics
+
+To enable statistics, set an absolute path to a persistent SQLite file and a
+random HMAC key in `.env`:
+
+```env
+STATS_DB_PATH=/path/to/stats.sqlite3
+STATS_HMAC_KEY=your-random-secret
+```
+
+The parent directory must exist and be writable by the bot. Keep the same
+database and key across restarts; changing the key breaks deduplication. An
+empty `STATS_DB_PATH` disables statistics and does not require a key.
+
+Each new private message counts toward the sender's UTC day, including commands
+and media. DAU and MAU use UTC calendar days and months; the current periods are
+partial. History starts when statistics are enabled. The `daily_activity` table
+has `day_utc` and HMAC-SHA256 `user_digest` columns, with a unique pair as its
+primary key. It stores no open Telegram IDs or message content.
+
+Query the database directly:
+
+```sql
+-- Total unique users
+SELECT COUNT(DISTINCT user_digest) AS total_unique FROM daily_activity;
+
+-- DAU by UTC day
+SELECT day_utc, COUNT(*) AS dau
+FROM daily_activity
+GROUP BY day_utc
+ORDER BY day_utc;
+
+-- MAU by UTC calendar month
+SELECT substr(day_utc, 1, 7) AS month_utc,
+       COUNT(DISTINCT user_digest) AS mau
+FROM daily_activity
+GROUP BY substr(day_utc, 1, 7)
+ORDER BY month_utc;
+```
+
 ## Running the bot
 
 ```bash

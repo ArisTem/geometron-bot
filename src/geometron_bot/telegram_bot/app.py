@@ -1,12 +1,12 @@
-from telegram import BotCommand
-from telegram.ext import Application, CommandHandler
+from telegram import BotCommand, Update
+from telegram.ext import Application, CommandHandler, TypeHandler
 
 from geometron_bot.generation.service import (
     FractalTreeGenerationService,
     LissajousGenerationService,
     SpirographGenerationService,
 )
-from geometron_bot.telegram_bot.config import Config
+from geometron_bot.telegram_bot.config import Config, ConfigurationError
 from geometron_bot.telegram_bot.handlers import (
     COMMANDS,
     FRACTAL_TREE_SERVICE_KEY,
@@ -14,6 +14,11 @@ from geometron_bot.telegram_bot.handlers import (
     PUBLIC_COMMANDS,
     SPIROGRAPH_SERVICE_KEY,
     handle_error,
+)
+from geometron_bot.telegram_bot.statistics import (
+    STATISTICS_KEY,
+    UsageStatistics,
+    track_usage,
 )
 
 
@@ -32,6 +37,15 @@ def create_application(
     spirograph_service: SpirographGenerationService | None = None,
     fractal_tree_service: FractalTreeGenerationService | None = None,
 ) -> Application:
+    statistics = None
+    if config.stats_db_path is not None:
+        if not config.stats_hmac_key:
+            raise ConfigurationError(
+                "STATS_HMAC_KEY is required when STATS_DB_PATH is set."
+            )
+        statistics = UsageStatistics(config.stats_db_path, config.stats_hmac_key)
+        statistics.initialize()
+
     application = (
         Application.builder()
         .token(config.telegram_bot_token)
@@ -53,6 +67,9 @@ def create_application(
         if fractal_tree_service is not None
         else FractalTreeGenerationService()
     )
+    if statistics is not None:
+        application.bot_data[STATISTICS_KEY] = statistics
+        application.add_handler(TypeHandler(Update, track_usage), group=-1)
     for command in COMMANDS:
         application.add_handler(CommandHandler(command.name, command.callback))
     application.add_error_handler(handle_error)

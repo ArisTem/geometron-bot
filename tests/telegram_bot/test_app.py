@@ -2,7 +2,7 @@ import asyncio
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
-from telegram.ext import CommandHandler
+from telegram.ext import CommandHandler, TypeHandler
 
 from geometron_bot.generation.service import (
     FractalTreeGenerationService,
@@ -18,6 +18,7 @@ from geometron_bot.telegram_bot.handlers import (
     PUBLIC_COMMANDS,
     SPIROGRAPH_SERVICE_KEY,
 )
+from geometron_bot.telegram_bot.statistics import STATISTICS_KEY, track_usage
 
 
 def test_application_registers_all_commands() -> None:
@@ -54,6 +55,24 @@ def test_application_registers_all_commands() -> None:
     assert "spirograph" in registered_commands
     assert "fractal_tree" in registered_commands
     assert application.post_init is set_bot_commands
+    assert -1 not in application.handlers
+
+
+def test_application_initializes_statistics_before_command_handlers(tmp_path) -> None:
+    db_path = tmp_path / "stats.sqlite3"
+
+    application = create_application(Config("123:test-token", db_path, "secret"))
+
+    assert db_path.is_file()
+    assert STATISTICS_KEY in application.bot_data
+    assert len(application.handlers[-1]) == 1
+    handler = application.handlers[-1][0]
+    assert isinstance(handler, TypeHandler)
+    assert handler.callback is track_usage
+    assert all(
+        isinstance(command_handler, CommandHandler)
+        for command_handler in application.handlers[0]
+    )
 
 
 def test_set_bot_commands_publishes_only_public_commands() -> None:
