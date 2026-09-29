@@ -54,6 +54,7 @@ def test_application_registers_all_commands() -> None:
     assert "lissajous" in registered_commands
     assert "spirograph" in registered_commands
     assert "fractal_tree" in registered_commands
+    assert "random" in registered_commands
     assert application.post_init is set_bot_commands
     assert -1 not in application.handlers
 
@@ -91,3 +92,4 @@ def test_set_bot_commands_publishes_only_public_commands() -> None:
     assert "lissajous" in published_names
     assert "spirograph" in published_names
     assert "fractal_tree" in published_names
+    assert "random" in published_names

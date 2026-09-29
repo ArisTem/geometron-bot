@@ -87,6 +87,7 @@ Available commands:
 - `/lissajous` generates a new Lissajous image and shows its seed.
 - `/spirograph` generates a new spirograph pattern and shows its type and seed.
 - `/fractal_tree` generates a new fractal tree and shows its seed.
+- `/random` generates a randomly selected image from the available image types.
 - `/help` shows the current list of available commands.
 
 The bot publishes these commands to Telegram's command menu when it starts.

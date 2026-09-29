@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import secrets
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from io import BytesIO
@@ -42,8 +43,7 @@ class CommandSpec:
 
 def build_help_text() -> str:
     command_lines = [
-        f"/{command.name} — {command.description}"
-        for command in PUBLIC_COMMANDS
+        f"/{command.name} — {command.description}" for command in PUBLIC_COMMANDS
     ]
     return "Доступные команды:\n\n" + "\n".join(command_lines)
 
@@ -163,16 +163,30 @@ async def fractal_tree(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     )
 
 
+async def random_image(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Generate one image chosen from the registered image commands."""
+    if update.message is None:
+        return
+
+    command = secrets.choice(IMAGE_COMMANDS)
+    await command.callback(update, context)
+
+
 async def handle_error(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
     del update
     logger.error("Unhandled error while processing an update", exc_info=context.error)
 
 
-COMMANDS = (
-    CommandSpec("start", "Познакомиться с ботом", start),
+IMAGE_COMMANDS = (
     CommandSpec("lissajous", "Создать кривую Лиссажу", lissajous),
     CommandSpec("spirograph", "Создать узор спирографа", spirograph),
     CommandSpec("fractal_tree", "Создать фрактальное дерево", fractal_tree),
+)
+
+COMMANDS = (
+    CommandSpec("start", "Познакомиться с ботом", start),
+    *IMAGE_COMMANDS,
+    CommandSpec("random", "Создать случайное изображение", random_image),
     CommandSpec("help", "Показать доступные команды", help_command),
     CommandSpec("ping", "Проверить работу бота", ping, is_public=False),
 )

@@ -13,10 +13,12 @@ from geometron_bot.generation.service import (
     SpirographGenerationResult,
 )
 from geometron_bot.generation.spirograph import SpirographParameters
+from geometron_bot.telegram_bot import handlers
 from geometron_bot.telegram_bot.handlers import (
     FRACTAL_TREE_SERVICE_KEY,
     GENERATION_ERROR_TEXT,
     GENERATION_STATUS_TEXT,
+    IMAGE_COMMANDS,
     LISSAJOUS_SERVICE_KEY,
     PUBLIC_COMMANDS,
     SPIROGRAPH_SERVICE_KEY,
@@ -24,6 +26,7 @@ from geometron_bot.telegram_bot.handlers import (
     help_command,
     lissajous,
     ping,
+    random_image,
     spirograph,
     start,
 )
@@ -247,3 +250,22 @@ def test_fractal_tree_sends_image_seed_and_filename(caplog) -> None:
     assert sent["caption"] == "Фрактальное дерево\nSeed: 12345"
     assert "seed=12345" in caplog.text
     assert "duration_ms=" in caplog.text
+
+
+def test_random_image_dispatches_selected_command(monkeypatch) -> None:
+    selected_command = next(
+        command for command in IMAGE_COMMANDS if command.name == "fractal_tree"
+    )
+    choose = Mock(return_value=selected_command)
+    monkeypatch.setattr(handlers.secrets, "choice", choose)
+
+    result = SimpleNamespace(image=BytesIO(b"PNG"), seed=12345)
+    service = SimpleNamespace(generate=Mock(return_value=result))
+    message, _ = image_command_message()
+    context = SimpleNamespace(bot_data={FRACTAL_TREE_SERVICE_KEY: service})
+
+    asyncio.run(random_image(SimpleNamespace(message=message), context))
+
+    choose.assert_called_once_with(IMAGE_COMMANDS)
+    service.generate.assert_called_once_with()
+    message.reply_photo.assert_awaited_once()
