@@ -94,6 +94,12 @@ The bot publishes these commands to Telegram's command menu when it starts.
 The diagnostic `/ping` command is also available, but is intentionally hidden
 from the public command list.
 
+Image generation runs in the background, keeping other commands responsive.
+Each user can have one active image job across all chats and commands, including
+`/random`. `MAX_CONCURRENT_GENERATIONS` limits active jobs per bot process
+(default: `2`, positive integer). Further requests from busy users or when the
+limit is reached receive a busy response and are not queued.
+
 Stop the bot with `Ctrl+C`. The application shuts down gracefully through
 python-telegram-bot's polling lifecycle.
 

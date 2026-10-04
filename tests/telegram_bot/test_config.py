@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from geometron_bot.telegram_bot.config import ConfigurationError, load_config
+from geometron_bot.telegram_bot.config import Config, ConfigurationError, load_config
 
 
 def test_load_config_reads_token_from_environment(
@@ -56,3 +56,34 @@ def test_statistics_configuration_reads_path_and_key(
     assert config.stats_db_path == Path("data/stats.sqlite3")
     assert config.stats_hmac_key == "secret"
     assert "secret" not in repr(config)
+
+
+def test_generation_limit_defaults_to_two(monkeypatch) -> None:
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "test-token")
+    monkeypatch.delenv("MAX_CONCURRENT_GENERATIONS", raising=False)
+
+    loaded = load_config(env_file=None)
+    direct = Config("test-token")
+
+    assert loaded.max_concurrent_generations == direct.max_concurrent_generations == 2
+
+
+def test_generation_limit_reads_environment(monkeypatch) -> None:
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "test-token")
+    monkeypatch.setenv("MAX_CONCURRENT_GENERATIONS", " 3 ")
+
+    assert load_config(env_file=None).max_concurrent_generations == 3
+
+
+@pytest.mark.parametrize("value", ["0", "-1", "", "many", "1.5"])
+def test_generation_limit_rejects_invalid_values(monkeypatch, value) -> None:
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "test-token")
+    monkeypatch.setenv("MAX_CONCURRENT_GENERATIONS", value)
+
+    with pytest.raises(ConfigurationError, match="MAX_CONCURRENT_GENERATIONS"):
+        load_config(env_file=None)
+
+
+def test_config_rejects_nonpositive_generation_limit() -> None:
+    with pytest.raises(ConfigurationError, match="MAX_CONCURRENT_GENERATIONS"):
+        Config("test-token", max_concurrent_generations=0)

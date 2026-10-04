@@ -15,6 +15,11 @@ from geometron_bot.generation.service import (
     LissajousGenerationService,
     SpirographGenerationService,
 )
+from geometron_bot.telegram_bot.generation_jobs import (
+    GENERATION_JOBS_KEY,
+    GenerationJobs,
+    GenerationRejection,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -23,6 +28,10 @@ SPIROGRAPH_SERVICE_KEY = "spirograph_generation_service"
 FRACTAL_TREE_SERVICE_KEY = "fractal_tree_generation_service"
 GENERATION_STATUS_TEXT = "Создаю изображение. Это может занять несколько секунд…"
 GENERATION_ERROR_TEXT = "Не удалось создать изображение. Попробуйте ещё раз."
+GENERATION_BUSY_TEXT = "Ваше изображение уже создаётся. Дождитесь завершения."
+GENERATION_CAPACITY_TEXT = (
+    "Сейчас бот занят. Попробуйте создать изображение чуть позже."
+)
 
 
 class ImageGenerationResult(Protocol):
@@ -68,6 +77,42 @@ async def ping(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     del context
     if update.message is not None:
         await update.message.reply_text("Бот работает 🟢")
+
+
+async def _start_image_generation[T: ImageGenerationResult](
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    generate: Callable[[], T],
+    *,
+    image_name: str,
+    filename_prefix: str,
+    caption: Callable[[T], str],
+) -> None:
+    message = update.message
+    user = update.effective_user
+    if message is None or user is None:
+        return
+
+    jobs: GenerationJobs = context.bot_data[GENERATION_JOBS_KEY]
+    rejection = jobs.submit(
+        user.id,
+        context.application,
+        update,
+        lambda: _generate_and_send_image(
+            message,
+            generate,
+            image_name=image_name,
+            filename_prefix=filename_prefix,
+            caption=caption,
+        ),
+    )
+    if rejection is not None:
+        text = (
+            GENERATION_BUSY_TEXT
+            if rejection is GenerationRejection.USER_BUSY
+            else GENERATION_CAPACITY_TEXT
+        )
+        await message.reply_text(text)
 
 
 async def _generate_and_send_image[T: ImageGenerationResult](
@@ -120,8 +165,9 @@ async def lissajous(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
 
     service: LissajousGenerationService = context.bot_data[LISSAJOUS_SERVICE_KEY]
-    await _generate_and_send_image(
-        update.message,
+    await _start_image_generation(
+        update,
+        context,
         service.generate,
         image_name="Lissajous",
         filename_prefix="lissajous",
@@ -135,8 +181,9 @@ async def spirograph(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         return
 
     service: SpirographGenerationService = context.bot_data[SPIROGRAPH_SERVICE_KEY]
-    await _generate_and_send_image(
-        update.message,
+    await _start_image_generation(
+        update,
+        context,
         service.generate,
         image_name="Spirograph",
         filename_prefix="spirograph",
@@ -154,8 +201,9 @@ async def fractal_tree(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         return
 
     service: FractalTreeGenerationService = context.bot_data[FRACTAL_TREE_SERVICE_KEY]
-    await _generate_and_send_image(
-        update.message,
+    await _start_image_generation(
+        update,
+        context,
         service.generate,
         image_name="Fractal tree",
         filename_prefix="fractal-tree",

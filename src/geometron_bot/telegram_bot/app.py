@@ -7,6 +7,10 @@ from geometron_bot.generation.service import (
     SpirographGenerationService,
 )
 from geometron_bot.telegram_bot.config import Config, ConfigurationError
+from geometron_bot.telegram_bot.generation_jobs import (
+    GENERATION_JOBS_KEY,
+    GenerationJobs,
+)
 from geometron_bot.telegram_bot.handlers import (
     COMMANDS,
     FRACTAL_TREE_SERVICE_KEY,
@@ -24,10 +28,7 @@ from geometron_bot.telegram_bot.statistics import (
 
 async def set_bot_commands(application: Application) -> None:
     await application.bot.set_my_commands(
-        [
-            BotCommand(command.name, command.description)
-            for command in PUBLIC_COMMANDS
-        ]
+        [BotCommand(command.name, command.description) for command in PUBLIC_COMMANDS]
     )
 
 
@@ -51,6 +52,9 @@ def create_application(
         .token(config.telegram_bot_token)
         .post_init(set_bot_commands)
         .build()
+    )
+    application.bot_data[GENERATION_JOBS_KEY] = GenerationJobs(
+        config.max_concurrent_generations
     )
     application.bot_data[LISSAJOUS_SERVICE_KEY] = (
         lissajous_service

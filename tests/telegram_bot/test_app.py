@@ -1,19 +1,26 @@
 import asyncio
+from datetime import UTC, datetime
+from io import BytesIO
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
-from telegram.ext import CommandHandler, TypeHandler
+from telegram import Chat, Message, MessageEntity, Update, User
+from telegram.ext import CommandHandler, ExtBot, TypeHandler
 
 from geometron_bot.generation.service import (
     FractalTreeGenerationService,
     LissajousGenerationService,
     SpirographGenerationService,
 )
+from geometron_bot.telegram_bot import handlers
 from geometron_bot.telegram_bot.app import create_application, set_bot_commands
 from geometron_bot.telegram_bot.config import Config
 from geometron_bot.telegram_bot.handlers import (
     COMMANDS,
     FRACTAL_TREE_SERVICE_KEY,
+    GENERATION_BUSY_TEXT,
+    GENERATION_CAPACITY_TEXT,
+    GENERATION_STATUS_TEXT,
     LISSAJOUS_SERVICE_KEY,
     PUBLIC_COMMANDS,
     SPIROGRAPH_SERVICE_KEY,
@@ -85,11 +92,105 @@ def test_set_bot_commands_publishes_only_public_commands() -> None:
     published_commands = bot.set_my_commands.await_args.args[0]
     assert [
         (command.command, command.description) for command in published_commands
-    ] == [
-        (command.name, command.description) for command in PUBLIC_COMMANDS
-    ]
+    ] == [(command.name, command.description) for command in PUBLIC_COMMANDS]
     published_names = {command.command for command in published_commands}
     assert "lissajous" in published_names
     assert "spirograph" in published_names
     assert "fractal_tree" in published_names
     assert "random" in published_names
+
+
+def test_background_jobs_keep_updates_responsive_and_shutdown_waits(
+    monkeypatch,
+) -> None:
+    async def run() -> None:
+        async def initialize_bot(bot):
+            bot._bot_user = User(
+                999, "Geometron", is_bot=True, username="geometron_bot"
+            )
+
+        monkeypatch.setattr(ExtBot, "initialize", initialize_bot)
+        started = asyncio.Event()
+        finish = asyncio.Event()
+        help_sent = asyncio.Event()
+        replies = []
+        status = SimpleNamespace(edit_text=AsyncMock(), delete=AsyncMock())
+
+        async def reply_text(message, text, **kwargs):
+            replies.append((message.message_id, text))
+            if text.startswith("Доступные команды:"):
+                help_sent.set()
+            return status
+
+        async def to_thread(generate):
+            started.set()
+            await finish.wait()
+            return generate()
+
+        monkeypatch.setattr(Message, "reply_text", reply_text)
+        send_photo = AsyncMock()
+        monkeypatch.setattr(Message, "reply_photo", send_photo)
+        monkeypatch.setattr(handlers.asyncio, "to_thread", to_thread)
+        service = SimpleNamespace(
+            generate=Mock(
+                return_value=SimpleNamespace(image=BytesIO(b"PNG"), seed=12345)
+            )
+        )
+        application = create_application(
+            Config("123:test-token", max_concurrent_generations=1),
+            lissajous_service=service,
+        )
+
+        def command_update(message_id, user_id, command, chat_id):
+            message = Message(
+                message_id=message_id,
+                date=datetime.now(UTC),
+                chat=Chat(chat_id, Chat.PRIVATE),
+                from_user=User(user_id, "User", is_bot=False),
+                text=command,
+                entities=[MessageEntity(MessageEntity.BOT_COMMAND, 0, len(command))],
+            )
+            message.set_bot(application.bot)
+            return Update(message_id, message=message)
+
+        await application.initialize()
+        await application.start()
+        stopping = None
+        try:
+            assert application.concurrent_updates == 1
+            await application.update_queue.put(command_update(1, 1, "/lissajous", 1))
+            await asyncio.wait_for(started.wait(), timeout=2)
+            # Repeating from another chat still uses the same user's active job.
+            await application.update_queue.put(command_update(2, 1, "/random", 10))
+            await application.update_queue.put(command_update(3, 2, "/fractal_tree", 2))
+            await application.update_queue.put(command_update(4, 1, "/help", 1))
+            await asyncio.wait_for(help_sent.wait(), timeout=2)
+
+            assert (1, GENERATION_STATUS_TEXT) in replies
+            assert (2, GENERATION_BUSY_TEXT) in replies
+            assert (3, GENERATION_CAPACITY_TEXT) in replies
+            service.generate.assert_not_called()
+            send_photo.assert_not_awaited()
+
+            await asyncio.wait_for(application.update_queue.join(), timeout=2)
+            stopping = asyncio.create_task(application.stop())
+            # Let stop() enqueue its stop signal, then wait for it to be consumed.
+            await asyncio.sleep(0)
+            await asyncio.wait_for(application.update_queue.join(), timeout=2)
+            await asyncio.sleep(0)
+            # Only the unfinished generation should now be holding up shutdown.
+            assert not stopping.done()
+            finish.set()
+            await asyncio.wait_for(stopping, timeout=2)
+            service.generate.assert_called_once_with()
+            send_photo.assert_awaited_once()
+            status.delete.assert_awaited_once()
+        finally:
+            finish.set()
+            if stopping is not None:
+                await stopping
+            elif application.running:
+                await application.stop()
+            await application.shutdown()
+
+    asyncio.run(run())
