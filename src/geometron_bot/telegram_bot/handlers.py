@@ -20,18 +20,13 @@ from geometron_bot.telegram_bot.generation_jobs import (
     GenerationJobs,
     GenerationRejection,
 )
+from geometron_bot.telegram_bot.localization import tr
 
 logger = logging.getLogger(__name__)
 
 LISSAJOUS_SERVICE_KEY = "lissajous_generation_service"
 SPIROGRAPH_SERVICE_KEY = "spirograph_generation_service"
 FRACTAL_TREE_SERVICE_KEY = "fractal_tree_generation_service"
-GENERATION_STATUS_TEXT = "Создаю изображение. Это может занять несколько секунд…"
-GENERATION_ERROR_TEXT = "Не удалось создать изображение. Попробуйте ещё раз."
-GENERATION_BUSY_TEXT = "Ваше изображение уже создаётся. Дождитесь завершения."
-GENERATION_CAPACITY_TEXT = (
-    "Сейчас бот занят. Попробуйте создать изображение чуть позже."
-)
 
 
 class ImageGenerationResult(Protocol):
@@ -45,38 +40,42 @@ class ImageGenerationResult(Protocol):
 @dataclass(frozen=True, slots=True)
 class CommandSpec:
     name: str
-    description: str
+    description_key: str
     callback: Callable[..., Awaitable[None]]
     is_public: bool = True
 
 
-def build_help_text() -> str:
+def build_help_text(language: str) -> str:
     command_lines = [
-        f"/{command.name} — {command.description}" for command in PUBLIC_COMMANDS
+        tr(
+            language,
+            "help.command",
+            command=command.name,
+            description=tr(language, command.description_key),
+        )
+        for command in PUBLIC_COMMANDS
     ]
-    return "Доступные команды:\n\n" + "\n".join(command_lines)
+    return tr(language, "help.text", commands="\n".join(command_lines))
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     del context
     if update.message is not None:
         await update.message.reply_text(
-            "Привет! Я Geometron — бот для создания изображений "
-            "с помощью математических алгоритмов.\n\n"
-            f"{build_help_text()}"
+            tr("ru", "start.text", help_text=build_help_text("ru"))
         )
 
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     del context
     if update.message is not None:
-        await update.message.reply_text(build_help_text())
+        await update.message.reply_text(build_help_text("ru"))
 
 
 async def ping(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     del context
     if update.message is not None:
-        await update.message.reply_text("Бот работает 🟢")
+        await update.message.reply_text(tr("ru", "ping.text"))
 
 
 async def _start_image_generation[T: ImageGenerationResult](
@@ -84,6 +83,7 @@ async def _start_image_generation[T: ImageGenerationResult](
     context: ContextTypes.DEFAULT_TYPE,
     generate: Callable[[], T],
     *,
+    language: str,
     image_name: str,
     filename_prefix: str,
     caption: Callable[[T], str],
@@ -101,29 +101,31 @@ async def _start_image_generation[T: ImageGenerationResult](
         lambda: _generate_and_send_image(
             message,
             generate,
+            language=language,
             image_name=image_name,
             filename_prefix=filename_prefix,
             caption=caption,
         ),
     )
     if rejection is not None:
-        text = (
-            GENERATION_BUSY_TEXT
+        key = (
+            "generation.busy"
             if rejection is GenerationRejection.USER_BUSY
-            else GENERATION_CAPACITY_TEXT
+            else "generation.capacity"
         )
-        await message.reply_text(text)
+        await message.reply_text(tr(language, key))
 
 
 async def _generate_and_send_image[T: ImageGenerationResult](
     message: Message,
     generate: Callable[[], T],
     *,
+    language: str,
     image_name: str,
     filename_prefix: str,
     caption: Callable[[T], str],
 ) -> None:
-    status_message = await message.reply_text(GENERATION_STATUS_TEXT)
+    status_message = await message.reply_text(tr(language, "generation.started"))
     started_at = perf_counter()
     try:
         result = await asyncio.to_thread(generate)
@@ -135,7 +137,7 @@ async def _generate_and_send_image[T: ImageGenerationResult](
             duration_ms,
             type(error).__name__,
         )
-        await status_message.edit_text(GENERATION_ERROR_TEXT)
+        await status_message.edit_text(tr(language, "generation.error"))
         return
 
     duration_ms = round((perf_counter() - started_at) * 1000)
@@ -150,7 +152,7 @@ async def _generate_and_send_image[T: ImageGenerationResult](
         await message.reply_photo(photo=photo, caption=caption(result))
     except Exception:
         logger.exception("%s image delivery failed", image_name)
-        await status_message.edit_text(GENERATION_ERROR_TEXT)
+        await status_message.edit_text(tr(language, "generation.error"))
         return
 
     try:
@@ -165,13 +167,15 @@ async def lissajous(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
 
     service: LissajousGenerationService = context.bot_data[LISSAJOUS_SERVICE_KEY]
+    language = "ru"
     await _start_image_generation(
         update,
         context,
         service.generate,
+        language=language,
         image_name="Lissajous",
         filename_prefix="lissajous",
-        caption=lambda result: f"Кривая Лиссажу\nSeed: {result.seed}",
+        caption=lambda result: tr(language, "caption.lissajous", seed=result.seed),
     )
 
 
@@ -181,16 +185,20 @@ async def spirograph(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         return
 
     service: SpirographGenerationService = context.bot_data[SPIROGRAPH_SERVICE_KEY]
+    language = "ru"
     await _start_image_generation(
         update,
         context,
         service.generate,
+        language=language,
         image_name="Spirograph",
         filename_prefix="spirograph",
-        caption=lambda result: (
-            "Спирограф: "
-            f"{'внутри' if result.parameters.pattern_type == 'inside' else 'снаружи'}"
-            f"\nSeed: {result.seed}"
+        caption=lambda result: tr(
+            language,
+            "caption.spirograph.inside"
+            if result.parameters.pattern_type == "inside"
+            else "caption.spirograph.outside",
+            seed=result.seed,
         ),
     )
 
@@ -201,13 +209,15 @@ async def fractal_tree(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         return
 
     service: FractalTreeGenerationService = context.bot_data[FRACTAL_TREE_SERVICE_KEY]
+    language = "ru"
     await _start_image_generation(
         update,
         context,
         service.generate,
+        language=language,
         image_name="Fractal tree",
         filename_prefix="fractal-tree",
-        caption=lambda result: f"Фрактальное дерево\nSeed: {result.seed}",
+        caption=lambda result: tr(language, "caption.fractal_tree", seed=result.seed),
     )
 
 
@@ -226,17 +236,17 @@ async def handle_error(update: object, context: ContextTypes.DEFAULT_TYPE) -> No
 
 
 IMAGE_COMMANDS = (
-    CommandSpec("lissajous", "Создать кривую Лиссажу", lissajous),
-    CommandSpec("spirograph", "Создать узор спирографа", spirograph),
-    CommandSpec("fractal_tree", "Создать фрактальное дерево", fractal_tree),
+    CommandSpec("lissajous", "command.lissajous", lissajous),
+    CommandSpec("spirograph", "command.spirograph", spirograph),
+    CommandSpec("fractal_tree", "command.fractal_tree", fractal_tree),
 )
 
 COMMANDS = (
-    CommandSpec("start", "Познакомиться с ботом", start),
+    CommandSpec("start", "command.start", start),
     *IMAGE_COMMANDS,
-    CommandSpec("random", "Создать случайное изображение", random_image),
-    CommandSpec("help", "Показать доступные команды", help_command),
-    CommandSpec("ping", "Проверить работу бота", ping, is_public=False),
+    CommandSpec("random", "command.random", random_image),
+    CommandSpec("help", "command.help", help_command),
+    CommandSpec("ping", "command.ping", ping, is_public=False),
 )
 
 PUBLIC_COMMANDS = tuple(command for command in COMMANDS if command.is_public)

@@ -1,0 +1,21 @@
+{
+  "start.text": "Привет! Я Geometron — бот для создания изображений с помощью математических алгоритмов.\n\n{help_text}",
+  "help.text": "Доступные команды:\n\n{commands}",
+  "help.command": "/{command} — {description}",
+  "ping.text": "Бот работает 🟢",
+  "command.start": "Познакомиться с ботом",
+  "command.lissajous": "Создать кривую Лиссажу",
+  "command.spirograph": "Создать узор спирографа",
+  "command.fractal_tree": "Создать фрактальное дерево",
+  "command.random": "Создать случайное изображение",
+  "command.help": "Показать доступные команды",
+  "command.ping": "Проверить работу бота",
+  "generation.started": "Создаю изображение. Это может занять несколько секунд…",
+  "generation.error": "Не удалось создать изображение. Попробуйте ещё раз.",
+  "generation.busy": "Ваше изображение уже создаётся. Дождитесь завершения.",
+  "generation.capacity": "Сейчас бот занят. Попробуйте создать изображение чуть позже.",
+  "caption.lissajous": "Кривая Лиссажу\nSeed: {seed}",
+  "caption.spirograph.inside": "Спирограф: внутри\nSeed: {seed}",
+  "caption.spirograph.outside": "Спирограф: снаружи\nSeed: {seed}",
+  "caption.fractal_tree": "Фрактальное дерево\nSeed: {seed}"
+}

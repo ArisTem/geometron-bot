@@ -6,6 +6,7 @@ import pytest
 
 from geometron_bot import __main__ as main_module
 from geometron_bot.telegram_bot.config import ConfigurationError
+from geometron_bot.telegram_bot.localization import CatalogError
 
 
 def test_main_logs_application_version(monkeypatch, caplog) -> None:
@@ -48,12 +49,19 @@ def test_application_version_falls_back_when_package_is_not_installed(
     assert main_module.get_application_version() == "unknown"
 
 
-def test_main_stops_before_polling_on_statistics_configuration_error(
-    monkeypatch, caplog
+@pytest.mark.parametrize(
+    "startup_error",
+    [
+        ConfigurationError("STATS_DB_PATH database cannot be opened or initialized."),
+        CatalogError("Localization catalog ru.json has different keys from en.json."),
+    ],
+)
+def test_main_stops_before_polling_on_startup_configuration_error(
+    monkeypatch, caplog, startup_error
 ) -> None:
     monkeypatch.setattr(main_module, "load_config", Mock(return_value=object()))
     create_application = Mock(
-        side_effect=ConfigurationError("STATS_DB_PATH database cannot be opened or initialized.")
+        side_effect=startup_error
     )
     monkeypatch.setattr(main_module, "create_application", create_application)
 
@@ -64,4 +72,4 @@ def test_main_stops_before_polling_on_statistics_configuration_error(
 
     assert error.value.code == 1
     create_application.assert_called_once()
-    assert "STATS_DB_PATH database cannot be opened or initialized." in caplog.text
+    assert str(startup_error) in caplog.text

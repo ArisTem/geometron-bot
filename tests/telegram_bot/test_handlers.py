@@ -1,6 +1,5 @@
 import asyncio
 import logging
-import re
 from io import BytesIO
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
@@ -22,14 +21,11 @@ from geometron_bot.telegram_bot.generation_jobs import (
 )
 from geometron_bot.telegram_bot.handlers import (
     FRACTAL_TREE_SERVICE_KEY,
-    GENERATION_BUSY_TEXT,
-    GENERATION_CAPACITY_TEXT,
-    GENERATION_ERROR_TEXT,
-    GENERATION_STATUS_TEXT,
     IMAGE_COMMANDS,
     LISSAJOUS_SERVICE_KEY,
     PUBLIC_COMMANDS,
     SPIROGRAPH_SERVICE_KEY,
+    build_help_text,
     fractal_tree,
     help_command,
     lissajous,
@@ -38,14 +34,7 @@ from geometron_bot.telegram_bot.handlers import (
     spirograph,
     start,
 )
-
-
-def extract_command_names(text: str) -> set[str]:
-    return set(re.findall(r"^/([a-z][a-z0-9_]*)\b", text, flags=re.MULTILINE))
-
-
-def public_command_names() -> set[str]:
-    return {command.name for command in PUBLIC_COMMANDS}
+from geometron_bot.telegram_bot.localization import tr
 
 
 def image_command_message() -> tuple[SimpleNamespace, SimpleNamespace]:
@@ -58,7 +47,10 @@ def image_command_message() -> tuple[SimpleNamespace, SimpleNamespace]:
 
 
 def image_update(message, user_id: int = 1) -> SimpleNamespace:
-    return SimpleNamespace(message=message, effective_user=SimpleNamespace(id=user_id))
+    return SimpleNamespace(
+        message=message,
+        effective_user=SimpleNamespace(id=user_id, language_code="en"),
+    )
 
 
 def image_context(services: dict, max_concurrent: int = 2) -> SimpleNamespace:
@@ -90,9 +82,9 @@ def test_start_lists_public_commands() -> None:
 
     asyncio.run(start(update, None))
 
-    message.reply_text.assert_awaited_once()
-    response = message.reply_text.await_args.args[0]
-    assert extract_command_names(response) == public_command_names()
+    message.reply_text.assert_awaited_once_with(
+        tr("ru", "start.text", help_text=build_help_text("ru"))
+    )
 
 
 def test_help_lists_public_commands() -> None:
@@ -101,9 +93,18 @@ def test_help_lists_public_commands() -> None:
 
     asyncio.run(help_command(update, None))
 
-    message.reply_text.assert_awaited_once()
-    response = message.reply_text.await_args.args[0]
-    assert extract_command_names(response) == public_command_names()
+    message.reply_text.assert_awaited_once_with(build_help_text("ru"))
+
+
+@pytest.mark.parametrize("language", ["ru", "en"])
+def test_help_translates_the_shared_public_command_registry(language) -> None:
+    text = build_help_text(language)
+    command_lines = [line for line in text.splitlines() if line.startswith("/")]
+    assert [line.split(maxsplit=1)[0] for line in command_lines] == [
+        f"/{command.name}" for command in PUBLIC_COMMANDS
+    ]
+    for command, line in zip(PUBLIC_COMMANDS, command_lines, strict=True):
+        assert tr(language, command.description_key) in line
 
 
 def test_ping_sends_response() -> None:
@@ -112,11 +113,7 @@ def test_ping_sends_response() -> None:
 
     asyncio.run(ping(update, None))
 
-    message.reply_text.assert_awaited_once()
-
-    response = message.reply_text.await_args.args[0]
-    assert isinstance(response, str)
-    assert response.strip()
+    message.reply_text.assert_awaited_once_with(tr("ru", "ping.text"))
 
 
 def test_lissajous_sends_generated_image_with_seed(caplog) -> None:
@@ -133,7 +130,7 @@ def test_lissajous_sends_generated_image_with_seed(caplog) -> None:
     message, status = image_command_message()
 
     def generate() -> LissajousGenerationResult:
-        message.reply_text.assert_awaited_once_with(GENERATION_STATUS_TEXT)
+        message.reply_text.assert_awaited_once_with(tr("ru", "generation.started"))
         return result
 
     service = SimpleNamespace(generate=Mock(side_effect=generate))
@@ -148,14 +145,14 @@ def test_lissajous_sends_generated_image_with_seed(caplog) -> None:
         run_image_command(lissajous, update, context)
 
     service.generate.assert_called_once_with()
-    message.reply_text.assert_awaited_once_with(GENERATION_STATUS_TEXT)
+    message.reply_text.assert_awaited_once_with(tr("ru", "generation.started"))
     message.reply_photo.assert_awaited_once()
     status.delete.assert_awaited_once()
     status.edit_text.assert_not_awaited()
     call_arguments = message.reply_photo.await_args.kwargs
     assert call_arguments["photo"].filename == "lissajous-12345.png"
     assert call_arguments["photo"].input_file_content == image_bytes
-    assert "12345" in call_arguments["caption"]
+    assert call_arguments["caption"] == tr("ru", "caption.lissajous", seed=12345)
     generation_records = [
         record
         for record in caplog.records
@@ -178,8 +175,8 @@ def test_lissajous_reports_generation_failure(caplog) -> None:
         run_image_command(lissajous, update, context)
 
     message.reply_photo.assert_not_awaited()
-    message.reply_text.assert_awaited_once_with(GENERATION_STATUS_TEXT)
-    status.edit_text.assert_awaited_once_with(GENERATION_ERROR_TEXT)
+    message.reply_text.assert_awaited_once_with(tr("ru", "generation.started"))
+    status.edit_text.assert_awaited_once_with(tr("ru", "generation.error"))
     status.delete.assert_not_awaited()
     error_records = [
         record
@@ -210,7 +207,7 @@ def test_lissajous_reports_photo_delivery_failure(caplog) -> None:
         run_image_command(lissajous, image_update(message), context)
 
     message.reply_photo.assert_awaited_once()
-    status.edit_text.assert_awaited_once_with(GENERATION_ERROR_TEXT)
+    status.edit_text.assert_awaited_once_with(tr("ru", "generation.error"))
     status.delete.assert_not_awaited()
     assert "Lissajous image delivery failed" in caplog.text
 
@@ -235,8 +232,7 @@ def test_spirograph_sends_image_type_seed_and_filename(caplog) -> None:
     sent = message.reply_photo.await_args.kwargs
     assert sent["photo"].filename == "spirograph-12345.png"
     assert sent["photo"].input_file_content == image_bytes
-    assert "внутри" in sent["caption"]
-    assert "12345" in sent["caption"]
+    assert sent["caption"] == tr("ru", "caption.spirograph.inside", seed=12345)
     assert "duration_ms=" in caplog.text
 
 
@@ -252,7 +248,9 @@ def test_spirograph_sends_outside_type() -> None:
 
     run_image_command(spirograph, image_update(message), context)
 
-    assert "снаружи" in message.reply_photo.await_args.kwargs["caption"]
+    assert message.reply_photo.await_args.kwargs["caption"] == tr(
+        "ru", "caption.spirograph.outside", seed=0
+    )
 
 
 def test_fractal_tree_sends_image_seed_and_filename(caplog) -> None:
@@ -282,7 +280,7 @@ def test_fractal_tree_sends_image_seed_and_filename(caplog) -> None:
     sent = message.reply_photo.await_args.kwargs
     assert sent["photo"].filename == "fractal-tree-12345.png"
     assert sent["photo"].input_file_content == image_bytes
-    assert sent["caption"] == "Фрактальное дерево\nSeed: 12345"
+    assert sent["caption"] == tr("ru", "caption.fractal_tree", seed=12345)
     assert "seed=12345" in caplog.text
     assert "duration_ms=" in caplog.text
 
@@ -348,7 +346,7 @@ def test_repeated_commands_are_rejected_until_generation_finishes(
         await asyncio.wait_for(lissajous(image_update(first), context), timeout=2)
         service.generate.assert_not_called()
         await asyncio.wait_for(repeat(image_update(second), context), timeout=2)
-        second.reply_text.assert_awaited_once_with(GENERATION_BUSY_TEXT)
+        second.reply_text.assert_awaited_once_with(tr("ru", "generation.busy"))
         assert len(context.tasks) == 1
 
         await asyncio.wait_for(started.wait(), timeout=2)
@@ -393,7 +391,7 @@ def test_different_users_run_concurrently_and_excess_requests_are_not_queued(
                 lissajous(image_update(message, user_id), context), timeout=2
             )
 
-        messages[2].reply_text.assert_awaited_once_with(GENERATION_CAPACITY_TEXT)
+        messages[2].reply_text.assert_awaited_once_with(tr("ru", "generation.capacity"))
         assert len(context.tasks) == 2
         await asyncio.wait_for(both_started.wait(), timeout=2)
         assert all(not task.done() for task in context.tasks)
@@ -426,7 +424,7 @@ def test_user_remains_busy_during_image_delivery() -> None:
         await asyncio.wait_for(uploading.wait(), timeout=2)
         repeat, _ = image_command_message()
         await asyncio.wait_for(lissajous(image_update(repeat), context), timeout=2)
-        repeat.reply_text.assert_awaited_once_with(GENERATION_BUSY_TEXT)
+        repeat.reply_text.assert_awaited_once_with(tr("ru", "generation.busy"))
         service.generate.assert_called_once_with()
         finish.set()
         await asyncio.wait_for(context.tasks[0], timeout=2)

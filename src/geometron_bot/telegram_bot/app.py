@@ -19,6 +19,7 @@ from geometron_bot.telegram_bot.handlers import (
     SPIROGRAPH_SERVICE_KEY,
     handle_error,
 )
+from geometron_bot.telegram_bot.localization import initialize_localization, tr
 from geometron_bot.telegram_bot.statistics import (
     STATISTICS_KEY,
     UsageStatistics,
@@ -28,7 +29,10 @@ from geometron_bot.telegram_bot.statistics import (
 
 async def set_bot_commands(application: Application) -> None:
     await application.bot.set_my_commands(
-        [BotCommand(command.name, command.description) for command in PUBLIC_COMMANDS]
+        [
+            BotCommand(command.name, tr("ru", command.description_key))
+            for command in PUBLIC_COMMANDS
+        ]
     )
 
 
@@ -38,6 +42,7 @@ def create_application(
     spirograph_service: SpirographGenerationService | None = None,
     fractal_tree_service: FractalTreeGenerationService | None = None,
 ) -> Application:
+    initialize_localization()
     statistics = None
     if config.stats_db_path is not None:
         if not config.stats_hmac_key:

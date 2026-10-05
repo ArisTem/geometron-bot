@@ -1,0 +1,21 @@
+{
+  "start.text": "Hi! I'm Geometron, a bot that creates images using mathematical algorithms.\n\n{help_text}",
+  "help.text": "Available commands:\n\n{commands}",
+  "help.command": "/{command} — {description}",
+  "ping.text": "The bot is working 🟢",
+  "command.start": "Meet the bot",
+  "command.lissajous": "Create a Lissajous curve",
+  "command.spirograph": "Create a spirograph pattern",
+  "command.fractal_tree": "Create a fractal tree",
+  "command.random": "Create a random image",
+  "command.help": "Show available commands",
+  "command.ping": "Check that the bot is working",
+  "generation.started": "Creating an image. This may take a few seconds…",
+  "generation.error": "Could not create the image. Please try again.",
+  "generation.busy": "Your image is already being created. Please wait for it to finish.",
+  "generation.capacity": "The bot is busy right now. Please try creating an image again later.",
+  "caption.lissajous": "Lissajous curve\nSeed: {seed}",
+  "caption.spirograph.inside": "Spirograph: inside\nSeed: {seed}",
+  "caption.spirograph.outside": "Spirograph: outside\nSeed: {seed}",
+  "caption.fractal_tree": "Fractal tree\nSeed: {seed}"
+}

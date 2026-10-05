@@ -105,9 +105,24 @@ python-telegram-bot's polling lifecycle.
 
 ## Development checks
 
+### Localization catalogs
+
+User-facing text lives in UTF-8 JSON catalogs at
+`src/geometron_bot/telegram_bot/locales/ru.json` and `en.json`, accessed through
+`tr(language, key, **values)`. Replies and the Telegram command menu currently use
+Russian.
+
+Update both catalogs when changing text. Use complete message templates with
+simple named fields such as `{seed}`. Catalogs must have matching keys and
+parameters, nonempty string values, and no duplicate keys; they are validated
+at startup.
+
+### Checks
+
 ```bash
 uv run pytest
 uv run ruff check .
+uv build
 ```
 
 ## License
