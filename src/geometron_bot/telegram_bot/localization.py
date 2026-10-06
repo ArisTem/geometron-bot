@@ -5,6 +5,8 @@ from functools import cache
 from importlib.resources import files
 from string import Formatter
 
+from telegram import Update
+
 from geometron_bot.telegram_bot.config import ConfigurationError
 
 SUPPORTED_LANGUAGES = ("ru", "en")
@@ -42,10 +44,14 @@ def _parameters(template: str) -> set[str]:
 def _read_catalog(language: str) -> tuple[dict[str, str], dict[str, set[str]]]:
     name = f"{language}.json"
     try:
-        source = files(__package__).joinpath("locales", name).read_text(encoding="utf-8")
+        source = (
+            files(__package__).joinpath("locales", name).read_text(encoding="utf-8")
+        )
         catalog = json.loads(source, object_pairs_hook=_unique_object)
     except (OSError, UnicodeError, ValueError) as error:
-        raise CatalogError(f"Could not load localization catalog {name}: {error}") from error
+        raise CatalogError(
+            f"Could not load localization catalog {name}: {error}"
+        ) from error
 
     if not isinstance(catalog, dict):
         raise CatalogError(f"Localization catalog {name} must be a JSON object.")
@@ -93,6 +99,16 @@ def _load_catalogs() -> dict[str, dict[str, str]]:
 def initialize_localization() -> None:
     """Load and validate all catalogs before the application starts polling."""
     _load_catalogs()
+
+
+def get_telegram_language(update: Update) -> str:
+    """Resolve the current update's language without retaining user state."""
+    user = update.effective_user
+    language_code = user.language_code if user is not None else None
+    if not language_code:
+        return DEFAULT_LANGUAGE
+    language = language_code.lower().split("-", 1)[0]
+    return language if language in SUPPORTED_LANGUAGES else DEFAULT_LANGUAGE
 
 
 def tr(language: str, key: str, **values: object) -> str:

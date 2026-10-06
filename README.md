@@ -94,6 +94,11 @@ The bot publishes these commands to Telegram's command menu when it starts.
 The diagnostic `/ping` command is also available, but is intentionally hidden
 from the public command list.
 
+Replies follow the sender's Telegram language. Russian and English are
+supported, with English as the fallback for unsupported or missing languages.
+In groups, replies use the command author's language. Command descriptions
+are also available in Russian and English.
+
 Image generation runs in the background, keeping other commands responsive.
 Each user can have one active image job across all chats and commands, including
 `/random`. `MAX_CONCURRENT_GENERATIONS` limits active jobs per bot process
@@ -109,8 +114,8 @@ python-telegram-bot's polling lifecycle.
 
 User-facing text lives in UTF-8 JSON catalogs at
 `src/geometron_bot/telegram_bot/locales/ru.json` and `en.json`, accessed through
-`tr(language, key, **values)`. Replies and the Telegram command menu currently use
-Russian.
+`tr(language, key, **values)`. Use `get_telegram_language(update)` to resolve
+the reply language.
 
 Update both catalogs when changing text. Use complete message templates with
 simple named fields such as `{seed}`. Catalogs must have matching keys and

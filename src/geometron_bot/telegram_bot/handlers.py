@@ -20,7 +20,7 @@ from geometron_bot.telegram_bot.generation_jobs import (
     GenerationJobs,
     GenerationRejection,
 )
-from geometron_bot.telegram_bot.localization import tr
+from geometron_bot.telegram_bot.localization import get_telegram_language, tr
 
 logger = logging.getLogger(__name__)
 
@@ -61,21 +61,22 @@ def build_help_text(language: str) -> str:
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     del context
     if update.message is not None:
+        language = get_telegram_language(update)
         await update.message.reply_text(
-            tr("ru", "start.text", help_text=build_help_text("ru"))
+            tr(language, "start.text", help_text=build_help_text(language))
         )
 
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     del context
     if update.message is not None:
-        await update.message.reply_text(build_help_text("ru"))
+        await update.message.reply_text(build_help_text(get_telegram_language(update)))
 
 
 async def ping(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     del context
     if update.message is not None:
-        await update.message.reply_text(tr("ru", "ping.text"))
+        await update.message.reply_text(tr(get_telegram_language(update), "ping.text"))
 
 
 async def _start_image_generation[T: ImageGenerationResult](
@@ -167,7 +168,7 @@ async def lissajous(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
 
     service: LissajousGenerationService = context.bot_data[LISSAJOUS_SERVICE_KEY]
-    language = "ru"
+    language = get_telegram_language(update)
     await _start_image_generation(
         update,
         context,
@@ -185,7 +186,7 @@ async def spirograph(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         return
 
     service: SpirographGenerationService = context.bot_data[SPIROGRAPH_SERVICE_KEY]
-    language = "ru"
+    language = get_telegram_language(update)
     await _start_image_generation(
         update,
         context,
@@ -209,7 +210,7 @@ async def fractal_tree(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         return
 
     service: FractalTreeGenerationService = context.bot_data[FRACTAL_TREE_SERVICE_KEY]
-    language = "ru"
+    language = get_telegram_language(update)
     await _start_image_generation(
         update,
         context,

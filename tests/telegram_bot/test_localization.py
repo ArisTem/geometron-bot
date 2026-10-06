@@ -1,15 +1,51 @@
 import json
+from types import SimpleNamespace
 from unittest.mock import Mock
 
 import pytest
+from telegram import Update, User
 
 from geometron_bot.telegram_bot import app, localization
 from geometron_bot.telegram_bot.config import Config
 from geometron_bot.telegram_bot.localization import (
     CatalogError,
+    get_telegram_language,
     initialize_localization,
     tr,
 )
+
+
+@pytest.mark.parametrize(
+    ("language_code", "expected"),
+    [
+        ("ru", "ru"),
+        ("ru-RU", "ru"),
+        ("RU-ru", "ru"),
+        ("en", "en"),
+        ("de", "en"),
+        ("", "en"),
+        (None, "en"),
+    ],
+)
+def test_telegram_language_uses_current_user_tag(language_code, expected):
+    update = SimpleNamespace(
+        effective_user=User(1, "User", is_bot=False, language_code=language_code)
+    )
+    assert get_telegram_language(update) == expected
+
+
+def test_telegram_language_without_user_is_english():
+    assert get_telegram_language(Update(1)) == "en"
+
+
+def test_telegram_language_does_not_remember_previous_updates():
+    def update(language_code):
+        return SimpleNamespace(
+            effective_user=User(1, "User", is_bot=False, language_code=language_code)
+        )
+
+    assert get_telegram_language(update("ru")) == "ru"
+    assert get_telegram_language(update(None)) == "en"
 
 
 @pytest.fixture(autouse=True)

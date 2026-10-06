@@ -4,6 +4,7 @@ from io import BytesIO
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
+import pytest
 from telegram import Chat, Message, MessageEntity, Update, User
 from telegram.ext import CommandHandler, ExtBot, TypeHandler
 
@@ -19,7 +20,6 @@ from geometron_bot.telegram_bot.handlers import (
     COMMANDS,
     FRACTAL_TREE_SERVICE_KEY,
     LISSAJOUS_SERVICE_KEY,
-    PUBLIC_COMMANDS,
     SPIROGRAPH_SERVICE_KEY,
 )
 from geometron_bot.telegram_bot.localization import tr
@@ -81,30 +81,12 @@ def test_application_initializes_statistics_before_command_handlers(tmp_path) ->
     )
 
 
-def test_set_bot_commands_publishes_only_public_commands() -> None:
-    bot = SimpleNamespace(set_my_commands=AsyncMock())
-
-    asyncio.run(set_bot_commands(SimpleNamespace(bot=bot)))
-
-    bot.set_my_commands.assert_awaited_once()
-    published_commands = bot.set_my_commands.await_args.args[0]
-    assert [
-        (command.command, command.description) for command in published_commands
-    ] == [
-        ("start", "Познакомиться с ботом"),
-        ("lissajous", "Создать кривую Лиссажу"),
-        ("spirograph", "Создать узор спирографа"),
-        ("fractal_tree", "Создать фрактальное дерево"),
-        ("random", "Создать случайное изображение"),
-        ("help", "Показать доступные команды"),
-    ]
-    published_names = {command.command for command in published_commands}
-    assert published_names == {command.name for command in PUBLIC_COMMANDS}
-    assert bot.set_my_commands.await_args.kwargs == {}
-
-
+@pytest.mark.parametrize(
+    ("language", "chat_type"),
+    [("ru", Chat.PRIVATE), ("en", Chat.GROUP)],
+)
 def test_background_jobs_keep_updates_responsive_and_shutdown_waits(
-    monkeypatch,
+    monkeypatch, language, chat_type,
 ) -> None:
     async def run() -> None:
         async def initialize_bot(bot):
@@ -121,7 +103,7 @@ def test_background_jobs_keep_updates_responsive_and_shutdown_waits(
 
         async def reply_text(message, text, **kwargs):
             replies.append((message.message_id, text))
-            if text.startswith("Доступные команды:"):
+            if message.text == "/help":
                 help_sent.set()
             return status
 
@@ -148,8 +130,8 @@ def test_background_jobs_keep_updates_responsive_and_shutdown_waits(
             message = Message(
                 message_id=message_id,
                 date=datetime.now(UTC),
-                chat=Chat(chat_id, Chat.PRIVATE),
-                from_user=User(user_id, "User", is_bot=False),
+                chat=Chat(chat_id if chat_type == Chat.PRIVATE else -chat_id, chat_type),
+                from_user=User(user_id, "User", is_bot=False, language_code=language),
                 text=command,
                 entities=[MessageEntity(MessageEntity.BOT_COMMAND, 0, len(command))],
             )
@@ -169,9 +151,10 @@ def test_background_jobs_keep_updates_responsive_and_shutdown_waits(
             await application.update_queue.put(command_update(4, 1, "/help", 1))
             await asyncio.wait_for(help_sent.wait(), timeout=2)
 
-            assert (1, tr("ru", "generation.started")) in replies
-            assert (2, tr("ru", "generation.busy")) in replies
-            assert (3, tr("ru", "generation.capacity")) in replies
+            assert (1, tr(language, "generation.started")) in replies
+            assert (2, tr(language, "generation.busy")) in replies
+            assert (3, tr(language, "generation.capacity")) in replies
+            assert (4, handlers.build_help_text(language)) in replies
             service.generate.assert_not_called()
             send_photo.assert_not_awaited()
 

@@ -1,4 +1,4 @@
-from telegram import BotCommand, Update
+from telegram import BotCommand, BotCommandScopeDefault, Update
 from telegram.ext import Application, CommandHandler, TypeHandler
 
 from geometron_bot.generation.service import (
@@ -19,7 +19,12 @@ from geometron_bot.telegram_bot.handlers import (
     SPIROGRAPH_SERVICE_KEY,
     handle_error,
 )
-from geometron_bot.telegram_bot.localization import initialize_localization, tr
+from geometron_bot.telegram_bot.localization import (
+    DEFAULT_LANGUAGE,
+    SUPPORTED_LANGUAGES,
+    initialize_localization,
+    tr,
+)
 from geometron_bot.telegram_bot.statistics import (
     STATISTICS_KEY,
     UsageStatistics,
@@ -28,12 +33,16 @@ from geometron_bot.telegram_bot.statistics import (
 
 
 async def set_bot_commands(application: Application) -> None:
-    await application.bot.set_my_commands(
-        [
-            BotCommand(command.name, tr("ru", command.description_key))
-            for command in PUBLIC_COMMANDS
-        ]
-    )
+    for language_code in ("", *SUPPORTED_LANGUAGES):
+        language = language_code or DEFAULT_LANGUAGE
+        await application.bot.set_my_commands(
+            [
+                BotCommand(command.name, tr(language, command.description_key))
+                for command in PUBLIC_COMMANDS
+            ],
+            scope=BotCommandScopeDefault(),
+            language_code=language_code,
+        )
 
 
 def create_application(
