@@ -53,6 +53,7 @@ def test_application_version_falls_back_when_package_is_not_installed(
     "startup_error",
     [
         ConfigurationError("STATS_DB_PATH database cannot be opened or initialized."),
+        ConfigurationError("PREFS_DB_PATH database cannot be opened or initialized."),
         CatalogError("Localization catalog ru.json has different keys from en.json."),
     ],
 )

@@ -1,4 +1,6 @@
 import asyncio
+import sqlite3
+from contextlib import closing
 from datetime import UTC, datetime
 from io import BytesIO
 from types import SimpleNamespace
@@ -15,7 +17,11 @@ from geometron_bot.generation.service import (
 )
 from geometron_bot.telegram_bot import handlers
 from geometron_bot.telegram_bot.app import create_application, set_bot_commands
-from geometron_bot.telegram_bot.config import Config
+from geometron_bot.telegram_bot.config import (
+    Config,
+    ConfigurationError,
+    PreferencesConfig,
+)
 from geometron_bot.telegram_bot.handlers import (
     COMMANDS,
     FRACTAL_TREE_SERVICE_KEY,
@@ -23,16 +29,26 @@ from geometron_bot.telegram_bot.handlers import (
     SPIROGRAPH_SERVICE_KEY,
 )
 from geometron_bot.telegram_bot.localization import tr
-from geometron_bot.telegram_bot.statistics import STATISTICS_KEY, track_usage
+from geometron_bot.telegram_bot.preferences import UserPreferences
+from geometron_bot.telegram_bot.statistics import (
+    STATISTICS_KEY,
+    UsageStatistics,
+    track_usage,
+)
 
 
-def test_application_registers_all_commands() -> None:
+@pytest.fixture
+def preferences_config(tmp_path):
+    return PreferencesConfig(tmp_path / "preferences.sqlite3", "preferences-secret")
+
+
+def test_application_registers_all_commands(preferences_config) -> None:
     lissajous_service = LissajousGenerationService()
     spirograph_service = SpirographGenerationService()
     fractal_tree_service = FractalTreeGenerationService()
 
     application = create_application(
-        Config(telegram_bot_token="123:test-token"),
+        Config(telegram_bot_token="123:test-token", preferences=preferences_config),
         lissajous_service=lissajous_service,
         spirograph_service=spirograph_service,
         fractal_tree_service=fractal_tree_service,
@@ -64,10 +80,14 @@ def test_application_registers_all_commands() -> None:
     assert -1 not in application.handlers
 
 
-def test_application_initializes_statistics_before_command_handlers(tmp_path) -> None:
+def test_application_initializes_statistics_before_command_handlers(
+    tmp_path, preferences_config
+) -> None:
     db_path = tmp_path / "stats.sqlite3"
 
-    application = create_application(Config("123:test-token", db_path, "secret"))
+    application = create_application(
+        Config("123:test-token", db_path, "secret", preferences=preferences_config)
+    )
 
     assert db_path.is_file()
     assert STATISTICS_KEY in application.bot_data
@@ -81,12 +101,97 @@ def test_application_initializes_statistics_before_command_handlers(tmp_path) ->
     )
 
 
+def test_application_initializes_preferences(preferences_config):
+    create_application(
+        Config("123:test-token", preferences=preferences_config)
+    )
+    with closing(sqlite3.connect(preferences_config.db_path)) as connection:
+        assert connection.execute("SELECT * FROM user_preferences").fetchall() == []
+
+
+@pytest.mark.parametrize("invalid_database", ["missing_parent", "invalid_schema"])
+def test_preferences_error_stops_before_statistics_and_telegram(
+    tmp_path, monkeypatch, invalid_database
+):
+    prefs_path = tmp_path / "preferences.sqlite3"
+    if invalid_database == "missing_parent":
+        prefs_path = tmp_path / "missing" / "preferences.sqlite3"
+    else:
+        with closing(sqlite3.connect(prefs_path)) as connection, connection:
+            connection.execute("CREATE TABLE unrelated (value TEXT)")
+    stats_path = tmp_path / "stats.sqlite3"
+    application = Mock()
+    monkeypatch.setattr("geometron_bot.telegram_bot.app.Application", application)
+    with pytest.raises(ConfigurationError, match="PREFS_DB_PATH"):
+        create_application(
+            Config(
+                "123:test-token", stats_path, "stats-secret",
+                preferences=PreferencesConfig(prefs_path, "preferences-secret"),
+            )
+        )
+    application.builder.assert_not_called()
+    assert not stats_path.exists()
+
+
+@pytest.mark.parametrize("existing_store", [None, "statistics", "preferences"])
+def test_coincident_paths_fail_before_modifying_databases(tmp_path, existing_store):
+    path = tmp_path / "shared.sqlite3"
+    if existing_store == "statistics":
+        statistics = UsageStatistics(path, "stats-secret")
+        statistics.initialize()
+        statistics.record(1, datetime(2026, 1, 1, tzinfo=UTC))
+    elif existing_store == "preferences":
+        preferences = UserPreferences(PreferencesConfig(path, "preferences-secret"))
+        preferences.initialize()
+        preferences.set_language(1, "ru")
+    before = path.read_bytes() if path.exists() else None
+    with pytest.raises(ConfigurationError, match="separate from STATS_DB_PATH"):
+        create_application(
+            Config(
+                "123:test-token", path, "stats-secret",
+                preferences=PreferencesConfig(path, "preferences-secret"),
+            )
+        )
+    assert (path.read_bytes() if path.exists() else None) == before
+
+
+@pytest.mark.parametrize("alias_kind", ["relative", "hardlink", "symlink"])
+def test_database_aliases_fail_before_modifying_statistics(
+    tmp_path, monkeypatch, alias_kind
+):
+    stats_path = tmp_path / "stats.sqlite3"
+    statistics = UsageStatistics(stats_path, "stats-secret")
+    statistics.initialize()
+    statistics.record(1, datetime(2026, 1, 1, tzinfo=UTC))
+    before = stats_path.read_bytes()
+    if alias_kind == "relative":
+        monkeypatch.chdir(tmp_path)
+        alias = stats_path.relative_to(tmp_path)
+    elif alias_kind == "hardlink":
+        alias = tmp_path / "hardlink.sqlite3"
+        alias.hardlink_to(stats_path)
+    else:
+        alias = tmp_path / "symlink.sqlite3"
+        try:
+            alias.symlink_to(stats_path)
+        except OSError as error:
+            pytest.skip(f"Symlink creation unavailable on this system: {error}")
+    with pytest.raises(ConfigurationError, match="separate from STATS_DB_PATH"):
+        create_application(
+            Config(
+                "123:test-token", stats_path, "stats-secret",
+                preferences=PreferencesConfig(alias, "preferences-secret"),
+            )
+        )
+    assert stats_path.read_bytes() == before
+
+
 @pytest.mark.parametrize(
     ("language", "chat_type"),
     [("ru", Chat.PRIVATE), ("en", Chat.GROUP)],
 )
 def test_background_jobs_keep_updates_responsive_and_shutdown_waits(
-    monkeypatch, language, chat_type,
+    monkeypatch, language, chat_type, preferences_config,
 ) -> None:
     async def run() -> None:
         async def initialize_bot(bot):
@@ -122,7 +227,10 @@ def test_background_jobs_keep_updates_responsive_and_shutdown_waits(
             )
         )
         application = create_application(
-            Config("123:test-token", max_concurrent_generations=1),
+            Config(
+                "123:test-token", preferences=preferences_config,
+                max_concurrent_generations=1,
+            ),
             lissajous_service=service,
         )
 

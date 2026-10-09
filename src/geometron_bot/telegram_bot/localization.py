@@ -8,9 +8,7 @@ from string import Formatter
 from telegram import Update
 
 from geometron_bot.telegram_bot.config import ConfigurationError
-
-SUPPORTED_LANGUAGES = ("ru", "en")
-DEFAULT_LANGUAGE = "en"
+from geometron_bot.telegram_bot.languages import DEFAULT_LANGUAGE, SUPPORTED_LANGUAGES
 
 
 class CatalogError(ConfigurationError):

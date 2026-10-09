@@ -75,6 +75,34 @@ GROUP BY substr(day_utc, 1, 7)
 ORDER BY month_utc;
 ```
 
+### Preferences storage
+
+The bot requires a separate SQLite database for preferences. Set both values
+in `.env`:
+
+```env
+PREFS_DB_PATH=/path/to/preferences.sqlite3
+PREFS_HMAC_KEY=your-separate-permanent-secret
+```
+
+Choose a path in an existing writable directory; the database file is created
+automatically. It must be separate from the statistics database. Configuration
+and database checks must pass before polling starts.
+
+Generate the preferences secret once:
+
+```bash
+uv run python -c "import secrets; print(secrets.token_hex(32))"
+```
+
+Use the output as a literal string for `PREFS_HMAC_KEY`, separate from
+`STATS_HMAC_KEY`. Keep it across restarts: changing or losing it makes saved
+preferences inaccessible. Back up the database and securely retain its key.
+
+Preferences store a pseudonymous HMAC-SHA256 identifier and a language code,
+without original Telegram IDs or message content. Manual language selection is
+not connected yet; replies still follow the sender's Telegram language.
+
 ## Running the bot
 
 ```bash

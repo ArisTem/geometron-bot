@@ -19,12 +19,9 @@ from geometron_bot.telegram_bot.handlers import (
     SPIROGRAPH_SERVICE_KEY,
     handle_error,
 )
-from geometron_bot.telegram_bot.localization import (
-    DEFAULT_LANGUAGE,
-    SUPPORTED_LANGUAGES,
-    initialize_localization,
-    tr,
-)
+from geometron_bot.telegram_bot.languages import DEFAULT_LANGUAGE, SUPPORTED_LANGUAGES
+from geometron_bot.telegram_bot.localization import initialize_localization, tr
+from geometron_bot.telegram_bot.preferences import UserPreferences
 from geometron_bot.telegram_bot.statistics import (
     STATISTICS_KEY,
     UsageStatistics,
@@ -45,6 +42,23 @@ async def set_bot_commands(application: Application) -> None:
         )
 
 
+def _check_database_paths(config: Config) -> None:
+    """Reject shared database files before initializing either store."""
+    if config.stats_db_path is None:
+        return
+    try:
+        prefs_path = config.preferences.db_path.resolve()
+        stats_path = config.stats_db_path.resolve()
+        if prefs_path == stats_path or (
+            prefs_path.exists() and stats_path.exists() and prefs_path.samefile(stats_path)
+        ):
+            raise ConfigurationError(
+                "PREFS_DB_PATH must be separate from STATS_DB_PATH."
+            )
+    except (OSError, ValueError) as error:
+        raise ConfigurationError("Database paths cannot be resolved or compared.") from error
+
+
 def create_application(
     config: Config,
     lissajous_service: LissajousGenerationService | None = None,
@@ -52,6 +66,9 @@ def create_application(
     fractal_tree_service: FractalTreeGenerationService | None = None,
 ) -> Application:
     initialize_localization()
+    _check_database_paths(config)
+    preferences = UserPreferences(config.preferences)
+    preferences.initialize()
     statistics = None
     if config.stats_db_path is not None:
         if not config.stats_hmac_key:

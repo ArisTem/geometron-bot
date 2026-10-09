@@ -6,7 +6,7 @@ import pytest
 from telegram import Update, User
 
 from geometron_bot.telegram_bot import app, localization
-from geometron_bot.telegram_bot.config import Config
+from geometron_bot.telegram_bot.config import Config, PreferencesConfig
 from geometron_bot.telegram_bot.localization import (
     CatalogError,
     get_telegram_language,
@@ -189,7 +189,7 @@ def test_parameter_order_repetition_and_escaped_braces_are_supported(catalog_fil
     )
 
 
-def test_invalid_catalog_stops_application_before_statistics_or_telegram(
+def test_invalid_catalog_stops_application_before_databases_or_telegram(
     catalog_files, tmp_path, monkeypatch
 ):
     write, _ = catalog_files
@@ -198,6 +198,12 @@ def test_invalid_catalog_stops_application_before_statistics_or_telegram(
     monkeypatch.setattr(app, "Application", application)
     database = tmp_path / "stats.sqlite3"
     with pytest.raises(CatalogError, match="ru.json"):
-        app.create_application(Config("123:test-token", database, "secret"))
+        app.create_application(
+            Config(
+                "123:test-token", database, "secret",
+                preferences=PreferencesConfig(tmp_path / "preferences.sqlite3", "key"),
+            )
+        )
     application.builder.assert_not_called()
     assert not database.exists()
+    assert not (tmp_path / "preferences.sqlite3").exists()
