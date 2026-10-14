@@ -35,6 +35,9 @@ TELEGRAM_BOT_TOKEN=your-token-here
 
 The `.env` file is ignored by Git.
 
+The owner manages the bot's descriptions and their translations in Telegram;
+the application does not set or update them.
+
 ### Usage statistics
 
 To enable statistics, set an absolute path to a persistent SQLite file and a
@@ -100,8 +103,7 @@ Use the output as a literal string for `PREFS_HMAC_KEY`, separate from
 preferences inaccessible. Back up the database and securely retain its key.
 
 Preferences store a pseudonymous HMAC-SHA256 identifier and a language code,
-without original Telegram IDs or message content. Manual language selection is
-not connected yet; replies still follow the sender's Telegram language.
+without original Telegram IDs or message content.
 
 ## Running the bot
 
@@ -117,15 +119,16 @@ Available commands:
 - `/fractal_tree` generates a new fractal tree and shows its seed.
 - `/random` generates a randomly selected image from the available image types.
 - `/help` shows the current list of available commands.
+- `/language` changes the language preference in a private chat with the bot.
 
 The bot publishes these commands to Telegram's command menu when it starts.
 The diagnostic `/ping` command is also available, but is intentionally hidden
 from the public command list.
 
-Replies follow the sender's Telegram language. Russian and English are
-supported, with English as the fallback for unsupported or missing languages.
-In groups, replies use the command author's language. Command descriptions
-are also available in Russian and English.
+Replies use your saved language choice or Telegram's language, with English
+as the fallback. Manual choices persist across restarts;
+Auto follows Telegram. The bot is intended for private chats.
+Private-chat command menus follow the selected language.
 
 Image generation runs in the background, keeping other commands responsive.
 Each user can have one active image job across all chats and commands, including
@@ -142,8 +145,7 @@ python-telegram-bot's polling lifecycle.
 
 User-facing text lives in UTF-8 JSON catalogs at
 `src/geometron_bot/telegram_bot/locales/ru.json` and `en.json`, accessed through
-`tr(language, key, **values)`. Use `get_telegram_language(update)` to resolve
-the reply language.
+`tr(language, key, **values)`.
 
 Update both catalogs when changing text. Use complete message templates with
 simple named fields such as `{seed}`. Catalogs must have matching keys and

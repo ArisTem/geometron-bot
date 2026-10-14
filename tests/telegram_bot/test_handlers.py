@@ -1,10 +1,14 @@
 import asyncio
 import logging
+from copy import copy
+from datetime import UTC, datetime
 from io import BytesIO
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
 import pytest
+from telegram import Chat, Message, User
+from telegram.error import BadRequest
 
 from geometron_bot.generation.fractal_tree import FractalTreeParameters, TreeVariant
 from geometron_bot.generation.lissajous import LissajousParameters
@@ -34,7 +38,12 @@ from geometron_bot.telegram_bot.handlers import (
     spirograph,
     start,
 )
-from geometron_bot.telegram_bot.localization import tr
+from geometron_bot.telegram_bot.language_settings import (
+    LANGUAGE_SETTINGS_KEY,
+    ResolvedLanguage,
+    get_resolved_language,
+)
+from geometron_bot.telegram_bot.localization import get_telegram_language, tr
 
 
 def image_command_message() -> tuple[SimpleNamespace, SimpleNamespace]:
@@ -55,8 +64,15 @@ def image_update(
     )
 
 
-def image_context(services: dict, max_concurrent: int = 2) -> SimpleNamespace:
+def image_context(
+    services: dict, max_concurrent: int = 2, *, language: str | None = None
+) -> SimpleNamespace:
     tasks = []
+
+    async def resolve_language(update):
+        if language is not None:
+            return ResolvedLanguage(language, language)
+        return ResolvedLanguage(get_telegram_language(update))
 
     def create_task(coroutine, *, update):
         task = asyncio.create_task(coroutine)
@@ -64,7 +80,11 @@ def image_context(services: dict, max_concurrent: int = 2) -> SimpleNamespace:
         return task
 
     return SimpleNamespace(
-        bot_data={**services, GENERATION_JOBS_KEY: GenerationJobs(max_concurrent)},
+        bot_data={
+            **services,
+            GENERATION_JOBS_KEY: GenerationJobs(max_concurrent),
+            LANGUAGE_SETTINGS_KEY: SimpleNamespace(resolve=resolve_language),
+        },
         application=SimpleNamespace(create_task=create_task),
         tasks=tasks,
     )
@@ -72,18 +92,107 @@ def image_context(services: dict, max_concurrent: int = 2) -> SimpleNamespace:
 
 def run_image_command(callback, update, context) -> None:
     async def run() -> None:
-        await callback(update, context)
+        await callback(update, copy(context))
         await asyncio.gather(*context.tasks)
 
     asyncio.run(run())
 
 
+@pytest.fixture
+def language_callback_environment(monkeypatch):
+    user = User(1, "User", is_bot=False, language_code="ru")
+    message = Message(
+        1,
+        datetime.now(UTC),
+        Chat(1, Chat.PRIVATE),
+        from_user=User(999, "Bot", is_bot=True),
+    )
+    query = SimpleNamespace(
+        message=message, from_user=user, data="language:ru", answer=AsyncMock()
+    )
+    settings = SimpleNamespace(
+        resolve=AsyncMock(return_value=ResolvedLanguage("en", "en")),
+        save=AsyncMock(return_value=True),
+        sync_menu=AsyncMock(return_value=True),
+    )
+    context = SimpleNamespace(
+        bot_data={LANGUAGE_SETTINGS_KEY: settings}, bot=SimpleNamespace(id=999)
+    )
+    show_result = AsyncMock()
+    monkeypatch.setattr(handlers, "_show_language_result", show_result)
+    return SimpleNamespace(
+        update=SimpleNamespace(callback_query=query, effective_user=user),
+        context=context,
+        settings=settings,
+        show_result=show_result,
+    )
+
+
+@pytest.mark.parametrize("choice", ["ru", "auto"])
+def test_language_callback_updates_context_even_if_menu_sync_fails(
+    language_callback_environment, choice
+):
+    env = language_callback_environment
+    env.settings.sync_menu.return_value = False
+    env.update.callback_query.data = f"language:{choice}"
+    manual = None if choice == "auto" else choice
+
+    async def run():
+        await handlers.language_callback(env.update, env.context)
+        assert await get_resolved_language(env.update, env.context) == ResolvedLanguage(
+            "ru", manual
+        )
+
+    asyncio.run(run())
+    env.settings.save.assert_awaited_once_with(1, manual)
+    env.settings.sync_menu.assert_awaited_once_with(env.context.bot, 1, manual)
+
+
+def test_language_callback_does_not_confirm_failed_save(language_callback_environment):
+    env = language_callback_environment
+    env.settings.save.return_value = False
+    asyncio.run(handlers.language_callback(env.update, env.context))
+    assert env.context.resolved_language == ResolvedLanguage("en", "en")
+    env.settings.sync_menu.assert_not_awaited()
+    env.show_result.assert_awaited_once_with(
+        env.update.callback_query.message,
+        tr("en", "language.save_error"),
+        language="en",
+    )
+
+
+def test_language_callback_rejects_unknown_choice(language_callback_environment):
+    env = language_callback_environment
+    env.update.callback_query.data = "language:unknown"
+    asyncio.run(handlers.language_callback(env.update, env.context))
+    env.settings.resolve.assert_not_awaited()
+    env.settings.save.assert_not_awaited()
+    env.settings.sync_menu.assert_not_awaited()
+    assert env.update.callback_query.answer.await_args.kwargs["show_alert"] is True
+
+
+def test_language_command_ignores_non_private_chat():
+    message = SimpleNamespace(chat=Chat(-100, Chat.GROUP), reply_text=AsyncMock())
+    asyncio.run(handlers.language_command(SimpleNamespace(message=message), None))
+    message.reply_text.assert_not_awaited()
+
+
+def test_unchanged_language_result_does_not_send_duplicate_message():
+    message = SimpleNamespace(
+        edit_text=AsyncMock(side_effect=BadRequest("Message is not modified")),
+        reply_text=AsyncMock(),
+    )
+    asyncio.run(handlers._show_language_result(message, "test", language="en"))
+    message.edit_text.assert_awaited_once()
+    message.reply_text.assert_not_awaited()
+
+
 @pytest.mark.parametrize("language", ["ru", "en"])
 def test_start_lists_public_commands(language) -> None:
     message = SimpleNamespace(reply_text=AsyncMock())
-    update = image_update(message, language_code=language)
+    update = image_update(message, language_code="en" if language == "ru" else "ru")
 
-    asyncio.run(start(update, None))
+    asyncio.run(start(update, image_context({}, language=language)))
 
     message.reply_text.assert_awaited_once_with(
         tr(language, "start.text", help_text=build_help_text(language))
@@ -93,9 +202,9 @@ def test_start_lists_public_commands(language) -> None:
 @pytest.mark.parametrize("language", ["ru", "en"])
 def test_help_lists_public_commands(language) -> None:
     message = SimpleNamespace(reply_text=AsyncMock())
-    update = image_update(message, language_code=language)
+    update = image_update(message, language_code="en" if language == "ru" else "ru")
 
-    asyncio.run(help_command(update, None))
+    asyncio.run(help_command(update, image_context({}, language=language)))
 
     message.reply_text.assert_awaited_once_with(build_help_text(language))
 
@@ -114,9 +223,9 @@ def test_help_translates_the_shared_public_command_registry(language) -> None:
 @pytest.mark.parametrize("language", ["ru", "en"])
 def test_ping_sends_response(language) -> None:
     message = SimpleNamespace(reply_text=AsyncMock())
-    update = image_update(message, language_code=language)
+    update = image_update(message, language_code="en" if language == "ru" else "ru")
 
-    asyncio.run(ping(update, None))
+    asyncio.run(ping(update, image_context({}, language=language)))
 
     message.reply_text.assert_awaited_once_with(tr(language, "ping.text"))
 
@@ -124,7 +233,7 @@ def test_ping_sends_response(language) -> None:
 def test_start_without_user_replies_in_english() -> None:
     message = SimpleNamespace(reply_text=AsyncMock())
     update = SimpleNamespace(message=message, effective_user=None)
-    asyncio.run(start(update, None))
+    asyncio.run(start(update, image_context({})))
     message.reply_text.assert_awaited_once_with(
         tr("en", "start.text", help_text=build_help_text("en"))
     )
@@ -149,8 +258,8 @@ def test_lissajous_sends_generated_image_with_seed(caplog) -> None:
         return result
 
     service = SimpleNamespace(generate=Mock(side_effect=generate))
-    update = image_update(message, language_code=language)
-    context = image_context({LISSAJOUS_SERVICE_KEY: service})
+    update = image_update(message, language_code="ru")
+    context = image_context({LISSAJOUS_SERVICE_KEY: service}, language=language)
 
     def delete_status() -> None:
         message.reply_photo.assert_awaited_once()
@@ -221,7 +330,9 @@ def test_lissajous_reports_photo_delivery_failure(caplog) -> None:
     context = image_context({LISSAJOUS_SERVICE_KEY: service})
 
     with caplog.at_level(logging.ERROR, logger=lissajous.__module__):
-        run_image_command(lissajous, image_update(message, language_code=language), context)
+        run_image_command(
+            lissajous, image_update(message, language_code=language), context
+        )
 
     message.reply_photo.assert_awaited_once()
     status.edit_text.assert_awaited_once_with(tr(language, "generation.error"))
@@ -239,8 +350,8 @@ def test_spirograph_sends_image_type_seed_and_filename(caplog) -> None:
     )
     service = SimpleNamespace(generate=Mock(return_value=result))
     message, _ = image_command_message()
-    update = image_update(message, language_code=language)
-    context = image_context({SPIROGRAPH_SERVICE_KEY: service})
+    update = image_update(message, language_code="ru")
+    context = image_context({SPIROGRAPH_SERVICE_KEY: service}, language=language)
 
     with caplog.at_level(logging.INFO, logger=spirograph.__module__):
         run_image_command(spirograph, update, context)
@@ -265,7 +376,9 @@ def test_spirograph_sends_outside_type() -> None:
     message, _ = image_command_message()
     context = image_context({SPIROGRAPH_SERVICE_KEY: service})
 
-    run_image_command(spirograph, image_update(message, language_code=language), context)
+    run_image_command(
+        spirograph, image_update(message, language_code=language), context
+    )
 
     assert message.reply_photo.await_args.kwargs["caption"] == tr(
         language, "caption.spirograph.outside", seed=0
@@ -290,10 +403,12 @@ def test_fractal_tree_sends_image_seed_and_filename(caplog) -> None:
     )
     service = SimpleNamespace(generate=Mock(return_value=result))
     message, _ = image_command_message()
-    context = image_context({FRACTAL_TREE_SERVICE_KEY: service})
+    context = image_context({FRACTAL_TREE_SERVICE_KEY: service}, language=language)
 
     with caplog.at_level(logging.INFO, logger=fractal_tree.__module__):
-        run_image_command(fractal_tree, image_update(message, language_code=language), context)
+        run_image_command(
+            fractal_tree, image_update(message, language_code="ru"), context
+        )
 
     service.generate.assert_called_once_with()
     message.reply_photo.assert_awaited_once()
@@ -316,9 +431,9 @@ def test_random_image_dispatches_selected_command(monkeypatch) -> None:
     result = SimpleNamespace(image=BytesIO(b"PNG"), seed=12345)
     service = SimpleNamespace(generate=Mock(return_value=result))
     message, _ = image_command_message()
-    context = image_context({FRACTAL_TREE_SERVICE_KEY: service})
+    context = image_context({FRACTAL_TREE_SERVICE_KEY: service}, language=language)
 
-    run_image_command(random_image, image_update(message, language_code=language), context)
+    run_image_command(random_image, image_update(message, language_code="ru"), context)
 
     choose.assert_called_once_with(IMAGE_COMMANDS)
     service.generate.assert_called_once_with()
@@ -368,9 +483,9 @@ def test_repeated_commands_are_rejected_until_generation_finishes(
         second, _ = image_command_message()
 
         # Sequential handlers still reject a repeat before the job even starts.
-        await asyncio.wait_for(lissajous(image_update(first), context), timeout=2)
+        await asyncio.wait_for(lissajous(image_update(first), copy(context)), timeout=2)
         service.generate.assert_not_called()
-        await asyncio.wait_for(repeat(image_update(second), context), timeout=2)
+        await asyncio.wait_for(repeat(image_update(second), copy(context)), timeout=2)
         second.reply_text.assert_awaited_once_with(tr("ru", "generation.busy"))
         assert len(context.tasks) == 1
 
@@ -383,7 +498,7 @@ def test_repeated_commands_are_rejected_until_generation_finishes(
         second.reply_photo.assert_not_awaited()
 
         # A fresh request becomes eligible after the first image is delivered.
-        await lissajous(image_update(second), context)
+        await lissajous(image_update(second), copy(context))
         await asyncio.wait_for(context.tasks[-1], timeout=2)
         assert service.generate.call_count == 2
         second.reply_photo.assert_awaited_once()
@@ -415,7 +530,8 @@ def test_different_users_run_concurrently_and_excess_requests_are_not_queued(
             zip(messages, ["ru", "en", "en"], strict=True), start=1
         ):
             await asyncio.wait_for(
-                lissajous(image_update(message, user_id, language), context), timeout=2
+                lissajous(image_update(message, user_id, language), copy(context)),
+                timeout=2,
             )
 
         messages[2].reply_text.assert_awaited_once_with(tr("en", "generation.capacity"))
@@ -427,31 +543,23 @@ def test_different_users_run_concurrently_and_excess_requests_are_not_queued(
         assert service.generate.call_count == 2
         messages[2].reply_photo.assert_not_awaited()
         for message, language in zip(messages[:2], ["ru", "en"], strict=True):
-            message.reply_text.assert_awaited_once_with(tr(language, "generation.started"))
+            message.reply_text.assert_awaited_once_with(
+                tr(language, "generation.started")
+            )
             assert message.reply_photo.await_args.kwargs["caption"] == tr(
                 language, "caption.lissajous", seed=12345
             )
 
-        await lissajous(image_update(messages[2], 3), context)
+        await lissajous(image_update(messages[2], 3), copy(context))
         await asyncio.wait_for(context.tasks[-1], timeout=2)
         assert service.generate.call_count == 3
 
     asyncio.run(run())
 
 
-@pytest.mark.parametrize(
-    ("callback", "caption_key", "outcome"),
-    [
-        (lissajous, "caption.lissajous", "success"),
-        (spirograph, "caption.spirograph.inside", "success"),
-        (fractal_tree, "caption.fractal_tree", "success"),
-        (random_image, "caption.lissajous", "success"),
-        (lissajous, "caption.lissajous", "render_error"),
-        (lissajous, "caption.lissajous", "delivery_error"),
-    ],
-)
-def test_generation_keeps_accepted_language_and_next_request_uses_new_language(
-    monkeypatch, callback, caption_key, outcome
+@pytest.mark.parametrize("outcome", ["success", "render_error", "delivery_error"])
+def test_generation_keeps_accepted_auto_language_and_next_request_uses_new_language(
+    monkeypatch, outcome
 ) -> None:
     async def run() -> None:
         started = asyncio.Event()
@@ -463,15 +571,8 @@ def test_generation_keeps_accepted_language_and_next_request_uses_new_language(
             return generate()
 
         monkeypatch.setattr(handlers.asyncio, "to_thread", to_thread)
-        monkeypatch.setattr(handlers.secrets, "choice", lambda commands: commands[0])
         service = generation_service()
-        context = image_context(
-            {
-                LISSAJOUS_SERVICE_KEY: service,
-                SPIROGRAPH_SERVICE_KEY: service,
-                FRACTAL_TREE_SERVICE_KEY: service,
-            }
-        )
+        context = image_context({LISSAJOUS_SERVICE_KEY: service})
         first, status = image_command_message()
         update = image_update(first, language_code="ru-RU")
         if outcome == "render_error":
@@ -479,7 +580,7 @@ def test_generation_keeps_accepted_language_and_next_request_uses_new_language(
         elif outcome == "delivery_error":
             first.reply_photo.side_effect = RuntimeError("upload failed")
 
-        await callback(update, context)
+        await lissajous(update, copy(context))
         # Even changes before the scheduled task starts cannot affect its language.
         update.effective_user.language_code = "en-US"
         await asyncio.wait_for(started.wait(), timeout=2)
@@ -487,17 +588,21 @@ def test_generation_keeps_accepted_language_and_next_request_uses_new_language(
 
         # The same user can already get help and a busy reply in the new language.
         help_message, _ = image_command_message()
-        await help_command(image_update(help_message, language_code="en-US"), context)
+        await help_command(
+            image_update(help_message, language_code="en-US"), copy(context)
+        )
         help_message.reply_text.assert_awaited_once_with(build_help_text("en"))
         busy_message, _ = image_command_message()
-        await callback(image_update(busy_message, language_code="en-US"), context)
+        await lissajous(
+            image_update(busy_message, language_code="en-US"), copy(context)
+        )
         busy_message.reply_text.assert_awaited_once_with(tr("en", "generation.busy"))
 
         finish.set()
         await asyncio.wait_for(context.tasks[0], timeout=2)
         if outcome == "success":
             assert first.reply_photo.await_args.kwargs["caption"] == tr(
-                "ru", caption_key, seed=12345
+                "ru", "caption.lissajous", seed=12345
             )
             status.edit_text.assert_not_awaited()
         else:
@@ -505,11 +610,13 @@ def test_generation_keeps_accepted_language_and_next_request_uses_new_language(
 
         service.generate.side_effect = generation_service().generate.side_effect
         next_message, _ = image_command_message()
-        await callback(image_update(next_message, language_code="en-US"), context)
+        await lissajous(
+            image_update(next_message, language_code="en-US"), copy(context)
+        )
         await asyncio.wait_for(context.tasks[-1], timeout=2)
         next_message.reply_text.assert_awaited_once_with(tr("en", "generation.started"))
         assert next_message.reply_photo.await_args.kwargs["caption"] == tr(
-            "en", caption_key, seed=12345
+            "en", "caption.lissajous", seed=12345
         )
 
     asyncio.run(run())
@@ -528,10 +635,12 @@ def test_user_remains_busy_during_image_delivery() -> None:
         context = image_context({LISSAJOUS_SERVICE_KEY: service})
         first, _ = image_command_message()
         first.reply_photo.side_effect = upload
-        await asyncio.wait_for(lissajous(image_update(first), context), timeout=2)
+        await asyncio.wait_for(lissajous(image_update(first), copy(context)), timeout=2)
         await asyncio.wait_for(uploading.wait(), timeout=2)
         repeat, _ = image_command_message()
-        await asyncio.wait_for(lissajous(image_update(repeat), context), timeout=2)
+        await asyncio.wait_for(
+            lissajous(image_update(repeat), copy(context)), timeout=2
+        )
         repeat.reply_text.assert_awaited_once_with(tr("ru", "generation.busy"))
         service.generate.assert_called_once_with()
         finish.set()
@@ -560,12 +669,12 @@ def test_failures_release_user_and_global_capacity(failure) -> None:
         else:
             status.delete.side_effect = error
 
-        await lissajous(image_update(message), context)
+        await lissajous(image_update(message), copy(context))
         await asyncio.gather(*context.tasks, return_exceptions=True)
 
         context.bot_data[LISSAJOUS_SERVICE_KEY] = generation_service()
         retry, _ = image_command_message()
-        await lissajous(image_update(retry), context)
+        await lissajous(image_update(retry), copy(context))
         await context.tasks[-1]
         retry.reply_photo.assert_awaited_once()
 
@@ -577,13 +686,13 @@ def test_cancellation_before_job_starts_releases_capacity() -> None:
         service = generation_service()
         context = image_context({LISSAJOUS_SERVICE_KEY: service}, max_concurrent=1)
         message, _ = image_command_message()
-        await lissajous(image_update(message), context)
+        await lissajous(image_update(message), copy(context))
         task = context.tasks[0]
         task.cancel()
         await asyncio.gather(task, return_exceptions=True)
         service.generate.assert_not_called()
 
-        await lissajous(image_update(message), context)
+        await lissajous(image_update(message), copy(context))
         await context.tasks[-1]
         message.reply_photo.assert_awaited_once()
 
@@ -600,11 +709,11 @@ def test_failed_task_registration_releases_capacity() -> None:
         )
         message, _ = image_command_message()
         with pytest.raises(RuntimeError, match="scheduling failed"):
-            await lissajous(image_update(message), context)
+            await lissajous(image_update(message), copy(context))
         service.generate.assert_not_called()
 
         context.application.create_task = create_task
-        await lissajous(image_update(message), context)
+        await lissajous(image_update(message), copy(context))
         await context.tasks[-1]
         message.reply_photo.assert_awaited_once()
 
@@ -616,7 +725,7 @@ def test_failed_task_registration_releases_capacity() -> None:
 )
 def test_updates_without_message_do_not_start_jobs(callback) -> None:
     context = image_context({})
-    asyncio.run(callback(SimpleNamespace(message=None), context))
+    asyncio.run(callback(SimpleNamespace(message=None), copy(context)))
     assert context.tasks == []
 
 
@@ -625,7 +734,7 @@ def test_updates_without_user_do_not_start_jobs() -> None:
     context = image_context({LISSAJOUS_SERVICE_KEY: service})
     message, _ = image_command_message()
     asyncio.run(
-        lissajous(SimpleNamespace(message=message, effective_user=None), context)
+        lissajous(SimpleNamespace(message=message, effective_user=None), copy(context))
     )
     assert context.tasks == []
     message.reply_text.assert_not_awaited()
