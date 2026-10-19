@@ -5,6 +5,8 @@ It generates deterministic Lissajous curves, spirograph patterns, and fractal tr
 with varied color palettes, and reports the seed that determines each image's
 geometry and colors.
 
+**Try the bot on Telegram:** [@geometron_bot](https://t.me/geometron_bot)
+
 ## Requirements
 
 - Python 3.14 or newer
