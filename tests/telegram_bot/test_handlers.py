@@ -10,7 +10,11 @@ import pytest
 from telegram import Chat, Message, User
 from telegram.error import BadRequest
 
-from geometron_bot.generation.fractal_tree import FractalTreeParameters, TreeVariant
+from geometron_bot.generation.fractal_tree import (
+    FractalTreeParameters,
+    TreeFamily,
+    TreeVariant,
+)
 from geometron_bot.generation.lissajous import LissajousParameters
 from geometron_bot.generation.service import (
     FractalTreeGenerationResult,
@@ -399,6 +403,11 @@ def test_fractal_tree_sends_image_seed_and_filename(caplog) -> None:
             angle_jitter=0.0,
             length_jitter=0.0,
             variant=TreeVariant.SYMMETRIC,
+            family=TreeFamily.SPREADING,
+            trunk_length=1.0,
+            branch_asymmetry=0.0,
+            prune_probability=0.0,
+            wind_bias=0.0,
         ),
     )
     service = SimpleNamespace(generate=Mock(return_value=result))
